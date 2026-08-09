@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Default: Modern Professional CA Indigo / Royal Blue */
+  --font-inter: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-input: #f8fafc;
+  --border-color: #e2e8f0;
+  --border-subtle: #f1f5f9;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+
+  /* Accent: Blue/Indigo default */
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+  --brand-800: #3730a3;
+  --brand-900: #312e81;
+  --brand-950: #1e1b4b;
+
+  --sidebar-bg: #0f172a;
+  --sidebar-text: #94a3b8;
+  --sidebar-active-bg: #1e293b;
+  --sidebar-active-text: #ffffff;
+}
+
+/* Dark Mode Overrides */
+.dark {
+  --bg-primary: #0b0f19;
+  --bg-secondary: #111827;
+  --bg-card: #131d31;
+  --bg-input: #1b263b;
+  --border-color: #1e293b;
+  --border-subtle: #172033;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-subtle: #64748b;
+
+  --sidebar-bg: #0b0f19;
+  --sidebar-text: #94a3b8;
+  --sidebar-active-bg: #172554;
+  --sidebar-active-text: #60a5fa;
+}
+
+/* Theme Accent: Blue */
+[data-accent="blue"] {
+  --brand-50: #eff6ff;
+  --brand-100: #dbeafe;
+  --brand-200: #bfdbfe;
+  --brand-300: #93c5fd;
+  --brand-400: #60a5fa;
+  --brand-500: #3b82f6;
+  --brand-600: #2563eb;
+  --brand-700: #1d4ed8;
+  --brand-800: #1e40af;
+  --brand-900: #1e3a8a;
+  --brand-950: #172554;
+}
+
+/* Theme Accent: Indigo (Default) */
+[data-accent="indigo"] {
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+  --brand-800: #3730a3;
+  --brand-900: #312e81;
+  --brand-950: #1e1b4b;
+}
+
+/* Theme Accent: Green / Emerald */
+[data-accent="green"] {
+  --brand-50: #ecfdf5;
+  --brand-100: #d1fae5;
+  --brand-200: #a7f3d0;
+  --brand-300: #6ee7b7;
+  --brand-400: #34d399;
+  --brand-500: #10b981;
+  --brand-600: #059669;
+  --brand-700: #047857;
+  --brand-800: #065f46;
+  --brand-900: #064e3b;
+  --brand-950: #022c22;
+}
+
+/* Theme Accent: Purple */
+[data-accent="purple"] {
+  --brand-50: #faf5ff;
+  --brand-100: #f3e8ff;
+  --brand-200: #e9d5ff;
+  --brand-300: #d8b4fe;
+  --brand-400: #c084fc;
+  --brand-500: #a855f7;
+  --brand-600: #9333ea;
+  --brand-700: #7e22ce;
+  --brand-800: #6b21a8;
+  --brand-900: #581c87;
+  --brand-950: #3b0764;
+}
+
+/* Theme Accent: Teal */
+[data-accent="teal"] {
+  --brand-50: #f0fdfa;
+  --brand-100: #ccfbf1;
+  --brand-200: #99f6e4;
+  --brand-300: #5eead4;
+  --brand-400: #2dd4bf;
+  --brand-500: #14b8a6;
+  --brand-600: #0d9488;
+  --brand-700: #0f766e;
+  --brand-800: #115e59;
+  --brand-900: #134e4a;
+  --brand-950: #042f2e;
+}
+
+/* Theme Accent: Orange */
+[data-accent="orange"] {
+  --brand-50: #fff7ed;
+  --brand-100: #ffedd5;
+  --brand-200: #fed7aa;
+  --brand-300: #fdba74;
+  --brand-400: #fb923c;
+  --brand-500: #f97316;
+  --brand-600: #ea580c;
+  --brand-700: #c2410c;
+  --brand-800: #9a3412;
+  --brand-900: #7c2d12;
+  --brand-950: #431407;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Clean Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Print Styles for CA Client Reports */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
