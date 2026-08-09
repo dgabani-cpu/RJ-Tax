@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth/AuthContext';
 import { TopNav } from '@/components/layout/TopNav';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { GlobalSearchModal } from '@/components/common/GlobalSearchModal';
@@ -13,10 +15,34 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
+
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push('/login');
+    }
+  }, [isAuthenticated, isLoading, router]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-brand-700 to-brand-500 text-white font-bold text-xl shadow-lg shadow-brand-500/30 animate-pulse">
+          TN
+        </div>
+        <p className="text-xs text-slate-400 font-medium">Verifying practice session credentials...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">

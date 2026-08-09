@@ -13,6 +13,7 @@ interface AuthContextType {
   otpChannel: 'EMAIL' | 'SMS' | 'AUTHENTICATOR';
   auditLogs: AuditLogItem[];
   initiateLogin: (email: string, password: string, channel?: 'EMAIL' | 'SMS' | 'AUTHENTICATOR') => Promise<{ success: boolean; error?: string; devOtp?: string }>;
+  registerPractice: (data: { name: string; firmName: string; email: string; phone: string; password: string; channel?: 'EMAIL' | 'SMS' | 'AUTHENTICATOR' }) => Promise<{ success: boolean; error?: string; devOtp?: string }>;
   verifyOtp: (otp: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   logoutAllDevices: () => void;
@@ -25,27 +26,35 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(INITIAL_USERS[0]); // Default to Super Admin for immediate rich view
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [loginStep, setLoginStep] = useState<'CREDENTIALS' | 'OTP' | 'AUTHENTICATED'>('AUTHENTICATED');
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loginStep, setLoginStep] = useState<'CREDENTIALS' | 'OTP' | 'AUTHENTICATED'>('CREDENTIALS');
   const [tempUserEmail, setTempUserEmail] = useState<string | null>(null);
+  const [tempRegisteredUser, setTempRegisteredUser] = useState<User | null>(null);
   const [otpChannel, setOtpChannel] = useState<'EMAIL' | 'SMS' | 'AUTHENTICATOR'>('EMAIL');
   const [pendingOtp, setPendingOtp] = useState<string>('842915');
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>(INITIAL_AUDIT_LOGS);
 
   useEffect(() => {
     // Check if session exists in localStorage
-    const savedUserJson = localStorage.getItem('tax_nexus_user');
-    if (savedUserJson) {
-      try {
+    try {
+      const savedUserJson = localStorage.getItem('tax_nexus_user');
+      if (savedUserJson) {
         const parsed = JSON.parse(savedUserJson);
         setUser(parsed);
         setIsAuthenticated(true);
         setLoginStep('AUTHENTICATED');
-      } catch (e) {
-        // Fallback to initial
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+        setLoginStep('CREDENTIALS');
       }
+    } catch (e) {
+      setUser(null);
+      setIsAuthenticated(false);
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
@@ -75,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     // For demo purposes, any password with at least 4 chars is accepted, or defaults
     if (!foundUser && email !== 'admin@taxnexus.io') {
-      return { success: false, error: 'Invalid user credentials. Please check your email/username.' };
+      return { success: false, error: 'Invalid user credentials. Please check your email or create an account.' };
     }
 
     const targetUser = foundUser || INITIAL_USERS[0];
@@ -88,10 +97,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const generatedOtp = '842915';
     setPendingOtp(generatedOtp);
     setTempUserEmail(targetUser.email);
+    setTempRegisteredUser(null);
     setOtpChannel(channel);
     setLoginStep('OTP');
 
     logAuditAction('Login Credentials Verified - OTP Dispatched', 'AUTH', undefined, `OTP sent to ${channel}: ${targetUser.email}`);
+
+    return { success: true, devOtp: generatedOtp };
+  };
+
+  const registerPractice = async (data: { name: string; firmName: string; email: string; phone: string; password: string; channel?: 'EMAIL' | 'SMS' | 'AUTHENTICATOR' }) => {
+    setIsLoading(true);
+    await new Promise((res) => setTimeout(res, 700));
+    setIsLoading(false);
+
+    const newUser: User = {
+      id: `usr-${Date.now()}`,
+      name: data.name,
+      email: data.email,
+      phone: data.phone,
+      role: 'SUPER_ADMIN',
+      roleTitle: 'Managing Partner',
+      department: data.firmName,
+      designation: 'CA, Practice Head',
+      status: 'ACTIVE',
+      mfaEnabled: true,
+      assignedClientsCount: 0,
+      permissions: DEFAULT_PERMISSIONS.SUPER_ADMIN,
+      lastLogin: 'Just now',
+    };
+
+    const generatedOtp = '842915';
+    setPendingOtp(generatedOtp);
+    setTempUserEmail(data.email);
+    setTempRegisteredUser(newUser);
+    setOtpChannel(data.channel || 'EMAIL');
+    setLoginStep('OTP');
+
+    logAuditAction('Practice Registration Initiated - OTP Dispatched', 'AUTH', undefined, `Registration for ${data.firmName} (${data.email})`);
 
     return { success: true, devOtp: generatedOtp };
   };
@@ -105,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: 'Invalid or expired OTP. Please try again.' };
     }
 
-    const targetUser = INITIAL_USERS.find((u) => u.email === tempUserEmail) || INITIAL_USERS[0];
+    const targetUser = tempRegisteredUser || INITIAL_USERS.find((u) => u.email === tempUserEmail) || INITIAL_USERS[0];
     setUser(targetUser);
     setIsAuthenticated(true);
     setLoginStep('AUTHENTICATED');
@@ -177,6 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         otpChannel,
         auditLogs,
         initiateLogin,
+        registerPractice,
         verifyOtp,
         logout,
         logoutAllDevices,

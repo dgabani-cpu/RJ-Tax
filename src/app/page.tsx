@@ -55,15 +55,15 @@ export default function LandingPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/login"
-              className="px-3.5 py-1.5 rounded-xl border border-slate-700 hover:border-slate-500 text-xs font-bold text-slate-200 hover:text-white transition-all"
+              className="px-4 py-1.5 rounded-xl border border-slate-700 hover:border-slate-500 text-xs font-bold text-slate-200 hover:text-white transition-all"
             >
               Sign In
             </Link>
             <Link
-              href="/dashboard"
+              href="/login?tab=signup"
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-xs font-bold text-white shadow-md shadow-brand-600/30 hover:scale-102 transition-all"
             >
-              <span>Open Dashboard</span>
+              <span>Create Practice Account</span>
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -85,20 +85,20 @@ export default function LandingPage() {
           Manage clients 360°, automate GSTR-2B downloads via compliant connectors, execute AI-assisted 13-category reconciliation, and dispatch scheduled WhatsApp compliance notices.
         </p>
 
-        {/* Hero CTA Buttons */}
+        {/* Hero CTA Buttons - Compulsory Sign In / Sign Up */}
         <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3.5">
           <Link
-            href="/dashboard"
+            href="/login"
             className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold text-sm shadow-lg shadow-brand-600/30 transition-all"
           >
-            <span>Launch Live Workspace</span>
+            <span>Sign In to Practice</span>
             <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
-            href="/login"
-            className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-200 font-bold text-sm transition-all"
+            href="/login?tab=signup"
+            className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-200 font-bold text-sm transition-all flex items-center justify-center gap-2"
           >
-            2FA Staff Login
+            <span>Create CA Practice Account</span>
           </Link>
         </div>
 
