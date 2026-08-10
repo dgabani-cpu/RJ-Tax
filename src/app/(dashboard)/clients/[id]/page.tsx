@@ -40,7 +40,7 @@ import {
   INITIAL_USERS,
   INITIAL_AUDIT_LOGS,
 } from '@/lib/db/mockDb';
-import { GSTCredentialVault, PurchaseInvoiceRecord } from '@/types';
+import { GSTCredentialVault, PurchaseInvoiceRecord, Client } from '@/types';
 import { clientService } from '@/services/clientService';
 
 type TabKey =
