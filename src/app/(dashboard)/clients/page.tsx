@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthContext';
@@ -15,17 +15,23 @@ import {
   Calendar,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Eye,
   Edit,
   UserCheck,
   Download,
   FileSpreadsheet,
+  UploadCloud,
+  Trash2,
+  Loader2,
+  Check,
   X,
   Sparkles,
+  Info,
 } from 'lucide-react';
 import { INITIAL_CLIENTS, INITIAL_USERS } from '@/lib/db/mockDb';
 import { Client, EntityType, FilingFrequency, GSTRegistrationType, ClientCategory } from '@/types';
-import { clientService } from '@/services/clientService';
+import { clientService, ClientImportResult } from '@/services/clientService';
 
 function ClientsContent() {
   const searchParams = useSearchParams();
@@ -38,84 +44,209 @@ function ClientsContent() {
   const [filterFrequency, setFilterFrequency] = useState<string>('ALL');
   const [filterStaff, setFilterStaff] = useState<string>('ALL');
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(initialAction === 'new');
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(initialAction === 'import');
+  
+  // Real File Upload & Import States
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
+  const [importResult, setImportResult] = useState<ClientImportResult | null>(null);
   const [previewImportClients, setPreviewImportClients] = useState<Client[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Handle Real File Selection
+  const handleProcessFile = async (file: File) => {
+    if (!file) return;
+    setImportFile(file);
+    setIsParsing(true);
+    try {
+      const result = await clientService.parseClientImportFile(file, clients);
+      setImportResult(result);
+      setPreviewImportClients(result.parsedClients);
+    } catch (err: any) {
+      console.error('Error processing client file:', err);
+      setImportResult({
+        totalRows: 0,
+        validCount: 0,
+        warningCount: 0,
+        errorCount: 1,
+        parsedClients: [],
+        rowDetails: [],
+        errors: [err?.message || 'Failed to parse file. Please verify the format.'],
+      });
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  // Drag & drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      handleProcessFile(file);
+    }
+  };
 
   const handleSimulateExcelParse = () => {
-    // Generate simulated bulk excel rows parsed from file
-    const sampleBatch: Client[] = [
-      {
-        id: `client-${Date.now()}-1`,
-        clientId: `TN-2026-0${clients.length + 1}`,
-        legalName: 'Gujarat Alkali & Chemicals Ltd',
-        tradeName: 'GACL Chemicals',
-        businessName: 'GACL Chemicals',
-        entityType: 'Public Limited Company',
-        pan: 'AAACG1234F',
-        gstin: '24AAACG1234F1ZP',
-        phone: '+91 98250 88776',
-        email: 'accounts@gacl.co.in',
-        businessAddress: 'GIDC Nandesari Vadodara Gujarat 391340',
-        registeredAddress: 'GIDC Nandesari Vadodara Gujarat 391340',
-        billingAddress: 'GIDC Nandesari Vadodara Gujarat 391340',
-        authorizedPerson: {
-          name: 'Mukesh Patel',
-          designation: 'VP Finance',
+    setIsParsing(true);
+    setTimeout(() => {
+      const sampleBatch: Client[] = [
+        {
+          id: `client-${Date.now()}-1`,
+          clientId: `TN-2026-0${clients.length + 1}`,
+          legalName: 'Gujarat Alkali & Chemicals Ltd',
+          tradeName: 'GACL Chemicals',
+          businessName: 'GACL Chemicals',
+          entityType: 'Public Limited Company',
+          pan: 'AAACG1234F',
+          gstin: '24AAACG1234F1ZP',
           phone: '+91 98250 88776',
-          email: 'mukesh.patel@gacl.co.in',
+          email: 'accounts@gacl.co.in',
+          businessAddress: 'GIDC Nandesari, Vadodara, Gujarat 391340',
+          registeredAddress: 'GIDC Nandesari, Vadodara, Gujarat 391340',
+          billingAddress: 'GIDC Nandesari, Vadodara, Gujarat 391340',
+          authorizedPerson: {
+            name: 'Mukesh Patel',
+            designation: 'VP Finance',
+            phone: '+91 98250 88776',
+            email: 'mukesh.patel@gacl.co.in',
+          },
+          category: 'Enterprise (Category A)',
+          industry: 'Chemical Manufacturing',
+          gstRegType: 'Regular',
+          filingFrequency: 'Monthly',
+          returnType: 'GSTR-1, GSTR-3B',
+          dueDates: { gstr1: '11th of month', gstr3b: '20th of month', reconciliation: '14th of month' },
+          assignedStaff: [{ staffId: 'usr-1', staffName: 'Neel Gabani', staffRole: 'Managing Partner', staffEmail: 'admin@taxnexus.io', assignmentType: 'PRIMARY', assignedAt: '2026-08-09' }],
+          status: 'ACTIVE',
+          createdAt: '2026-08-09',
+          updatedAt: '2026-08-09',
         },
-        category: 'Enterprise (Category A)',
-        industry: 'Chemical Manufacturing',
-        gstRegType: 'Regular',
-        filingFrequency: 'Monthly',
-        returnType: 'GSTR-1, GSTR-3B',
-        dueDates: { gstr1: '11th of month', gstr3b: '20th of month', reconciliation: '14th of month' },
-        assignedStaff: [{ staffId: 'user-1', staffName: 'Neel Gabani', staffRole: 'Super Admin', staffEmail: 'admin@taxnexus.io', assignmentType: 'PRIMARY', assignedAt: '2026-08-09' }],
-        status: 'ACTIVE',
-        createdAt: '2026-08-09',
-        updatedAt: '2026-08-09',
-      },
-      {
-        id: `client-${Date.now()}-2`,
-        clientId: `TN-2026-0${clients.length + 2}`,
-        legalName: 'Torrent Logistics & Cold Storage LLP',
-        tradeName: 'Torrent Logistics',
-        businessName: 'Torrent Logistics',
-        entityType: 'Limited Liability Partnership (LLP)',
-        pan: 'AAACT5678K',
-        gstin: '24AAACT5678K1ZQ',
-        phone: '+91 97129 44332',
-        email: 'taxation@torrentlogistics.com',
-        businessAddress: 'Changodar Industrial Zone Ahmedabad Gujarat 382213',
-        registeredAddress: 'Changodar Industrial Zone Ahmedabad Gujarat 382213',
-        billingAddress: 'Changodar Industrial Zone Ahmedabad Gujarat 382213',
-        authorizedPerson: {
-          name: 'Nitin Shah',
-          designation: 'Designated Partner',
+        {
+          id: `client-${Date.now()}-2`,
+          clientId: `TN-2026-0${clients.length + 2}`,
+          legalName: 'Torrent Logistics & Cold Storage LLP',
+          tradeName: 'Torrent Logistics',
+          businessName: 'Torrent Logistics',
+          entityType: 'Limited Liability Partnership (LLP)',
+          pan: 'AAACT5678K',
+          gstin: '24AAACT5678K1ZQ',
           phone: '+91 97129 44332',
-          email: 'nitin@torrentlogistics.com',
+          email: 'taxation@torrentlogistics.com',
+          businessAddress: 'Changodar Industrial Zone, Ahmedabad, Gujarat 382213',
+          registeredAddress: 'Changodar Industrial Zone, Ahmedabad, Gujarat 382213',
+          billingAddress: 'Changodar Industrial Zone, Ahmedabad, Gujarat 382213',
+          authorizedPerson: {
+            name: 'Nitin Shah',
+            designation: 'Designated Partner',
+            phone: '+91 97129 44332',
+            email: 'nitin@torrentlogistics.com',
+          },
+          category: 'Standard (Category B)',
+          industry: 'Logistics & Cold Storage',
+          gstRegType: 'Regular',
+          filingFrequency: 'Monthly',
+          returnType: 'GSTR-1, GSTR-3B',
+          dueDates: { gstr1: '11th of month', gstr3b: '20th of month', reconciliation: '14th of month' },
+          assignedStaff: [{ staffId: 'usr-2', staffName: 'Sneha Patel', staffRole: 'Manager', staffEmail: 'sneha.patel@taxnexus.io', assignmentType: 'PRIMARY', assignedAt: '2026-08-09' }],
+          status: 'ACTIVE',
+          createdAt: '2026-08-09',
+          updatedAt: '2026-08-09',
         },
-        category: 'Standard (Category B)',
-        industry: 'Logistics & Warehousing',
-        gstRegType: 'Regular',
-        filingFrequency: 'Monthly',
-        returnType: 'GSTR-1, GSTR-3B',
-        dueDates: { gstr1: '11th of month', gstr3b: '20th of month', reconciliation: '14th of month' },
-        assignedStaff: [{ staffId: 'user-2', staffName: 'Sneha Patel', staffRole: 'Manager', staffEmail: 'sneha.patel@taxnexus.io', assignmentType: 'PRIMARY', assignedAt: '2026-08-09' }],
-        status: 'ACTIVE',
-        createdAt: '2026-08-09',
-        updatedAt: '2026-08-09',
-      },
-    ];
-    setPreviewImportClients(sampleBatch);
+        {
+          id: `client-${Date.now()}-3`,
+          clientId: `TN-2026-0${clients.length + 3}`,
+          legalName: 'Apex Digital Solutions Proprietary Concern',
+          tradeName: 'Apex Tech Labs',
+          businessName: 'Apex Tech Labs',
+          entityType: 'Sole Proprietorship',
+          pan: 'BPWPA9876Q',
+          gstin: '24BPWPA9876Q1Z2',
+          phone: '+91 98980 12345',
+          email: 'pooja@apextechlabs.io',
+          businessAddress: '402 Synergy Tower, SG Highway, Ahmedabad 380054',
+          registeredAddress: '402 Synergy Tower, SG Highway, Ahmedabad 380054',
+          billingAddress: '402 Synergy Tower, SG Highway, Ahmedabad 380054',
+          authorizedPerson: {
+            name: 'Pooja Sharma',
+            designation: 'Proprietor',
+            phone: '+91 98980 12345',
+            email: 'pooja@apextechlabs.io',
+          },
+          category: 'Startup / SME (Category C)',
+          industry: 'IT & Software Services',
+          gstRegType: 'Regular',
+          filingFrequency: 'Quarterly (QRMP)',
+          returnType: 'IFF, GSTR-3B (QRMP)',
+          dueDates: { gstr1: '13th of quarter end', gstr3b: '20th of month', reconciliation: '14th of month' },
+          assignedStaff: [{ staffId: 'usr-3', staffName: 'Amit Verma', staffRole: 'Senior Associate', staffEmail: 'amit.verma@taxnexus.io', assignmentType: 'PRIMARY', assignedAt: '2026-08-09' }],
+          status: 'ACTIVE',
+          createdAt: '2026-08-09',
+          updatedAt: '2026-08-09',
+        },
+      ];
+
+      setImportResult({
+        totalRows: sampleBatch.length,
+        validCount: sampleBatch.length,
+        warningCount: 0,
+        errorCount: 0,
+        parsedClients: sampleBatch,
+        rowDetails: sampleBatch.map((c, idx) => ({
+          client: c,
+          rowNumber: idx + 2,
+          status: 'VALID',
+          messages: [],
+          rawRow: { 'Legal Name': c.legalName, GSTIN: c.gstin },
+        })),
+        errors: [],
+      });
+      setPreviewImportClients(sampleBatch);
+      setIsParsing(false);
+    }, 400);
   };
 
   const handleConfirmImport = () => {
     if (previewImportClients.length === 0) return;
-    setClients([...previewImportClients, ...clients]);
-    logAuditAction('Bulk Clients Imported via Excel', 'CLIENT', 'Excel Register Upload', `Imported ${previewImportClients.length} clients into TaxNexus database.`);
+    setClients((prev) => [...previewImportClients, ...prev]);
+    logAuditAction(
+      'Bulk Clients Imported via Excel',
+      'CLIENT',
+      importFile ? importFile.name : 'Excel / CSV Register',
+      `Imported ${previewImportClients.length} clients into TaxNexus database.`
+    );
+    setNotification({
+      type: 'success',
+      message: `🎉 Successfully imported ${previewImportClients.length} clients into practice directory!`,
+    });
     setPreviewImportClients([]);
+    setImportResult(null);
+    setImportFile(null);
     setIsImportModalOpen(false);
+    setTimeout(() => setNotification(null), 5000);
+  };
+
+  // Reset import state
+  const handleResetImport = () => {
+    setImportFile(null);
+    setImportResult(null);
+    setPreviewImportClients([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   // New Client Form State
@@ -213,10 +344,38 @@ function ClientsContent() {
     setClients([createdClient, ...clients]);
     setIsNewClientModalOpen(false);
     logAuditAction('Client Profile Created', 'CLIENT', createdClient.legalName, `Registered GSTIN: ${createdClient.gstin}`);
+    setNotification({
+      type: 'success',
+      message: `Client ${createdClient.legalName} registered successfully!`,
+    });
+    setTimeout(() => setNotification(null), 5000);
   };
 
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {notification && (
+        <div
+          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-semibold animate-in slide-in-from-top-2 duration-200 ${
+            notification.type === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+              : 'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {notification.type === 'success' ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            )}
+            <span>{notification.message}</span>
+          </div>
+          <button onClick={() => setNotification(null)} className="p-1 hover:opacity-75">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -231,23 +390,25 @@ function ClientsContent() {
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Export Clients Button */}
-          <button
-            onClick={() => {
-              clientService.exportClientsToCSV(clients);
-              logAuditAction('Clients Directory Exported', 'CLIENT', 'All Practice Clients', `Exported ${clients.length} client profiles to CSV/Excel`);
-            }}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 px-3 py-2 text-xs font-bold transition-all"
-            title="Export full client list to CSV / Excel spreadsheet"
-          >
-            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Export (.xlsx / .csv)</span>
-          </button>
+          <div className="relative group">
+            <button
+              onClick={() => {
+                clientService.exportClientsToCSV(clients, 'xlsx');
+                logAuditAction('Clients Directory Exported', 'CLIENT', 'All Practice Clients', `Exported ${clients.length} client profiles to Excel`);
+              }}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 px-3 py-2 text-xs font-bold transition-all shadow-xs"
+              title="Export full client list to native Excel (.xlsx)"
+            >
+              <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Export (.xlsx)</span>
+            </button>
+          </div>
 
           {/* Import Bulk Clients Button */}
           {hasPermission('addClients') && (
             <button
               onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/80 hover:bg-purple-100 text-purple-700 dark:text-purple-300 px-3 py-2 text-xs font-bold transition-all"
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/80 hover:bg-purple-100 text-purple-700 dark:text-purple-300 px-3.5 py-2 text-xs font-bold transition-all shadow-xs"
               title="Bulk import clients from Excel / CSV register"
             >
               <FileSpreadsheet className="h-4 w-4 text-purple-600 dark:text-purple-400" />
@@ -413,15 +574,15 @@ function ClientsContent() {
                       </td>
 
                       <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-800 dark:text-slate-200">{c.authorizedPerson.name}</div>
+                        <div className="font-semibold text-slate-800 dark:text-slate-200">{c.authorizedPerson?.name || 'Contact'}</div>
                         <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                          <Phone className="h-3 w-3" /> {c.authorizedPerson.phone}
+                          <Phone className="h-3 w-3" /> {c.authorizedPerson?.phone || 'N/A'}
                         </div>
                       </td>
 
                       <td className="py-3 px-4">
                         <div className="space-y-0.5">
-                          {c.assignedStaff.map((s, idx) => (
+                          {c.assignedStaff?.map((s, idx) => (
                             <span
                               key={idx}
                               className="inline-block mr-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-750 text-slate-700 dark:text-slate-300"
@@ -696,23 +857,24 @@ function ClientsContent() {
       {isImportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div
-            className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 shadow-modal space-y-4"
+            className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 shadow-modal space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <FileSpreadsheet className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                  Import Bulk Clients via Excel / CSV Register
+                  Bulk Import Clients via Excel (.xlsx / .xls) or CSV
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Batch onboard client profiles, GSTIN registers, and staff assignments using Excel spreadsheet import.
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Batch onboard client entities, GSTIN profiles, filing schemes, and staff assignments with automatic validation and PAN extraction.
                 </p>
               </div>
               <button
                 onClick={() => {
                   setIsImportModalOpen(false);
-                  setPreviewImportClients([]);
+                  handleResetImport();
                 }}
                 className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
@@ -721,101 +883,319 @@ function ClientsContent() {
             </div>
 
             {/* Template Download Strip */}
-            <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/80 flex items-center justify-between text-xs">
+            <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
               <div>
-                <span className="font-bold text-purple-900 dark:text-purple-200">1. Need the Excel Import Schema?</span>
-                <p className="text-[11px] text-purple-700 dark:text-purple-300">Download the formatted CSV/Excel template with column headers & instructions.</p>
+                <span className="font-bold text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                  <Download className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  Download Practice Import Templates
+                </span>
+                <p className="text-[11px] text-purple-700 dark:text-purple-300 mt-0.5">
+                  Includes formatted columns with sample GSTINs, entity types, and instructions.
+                </p>
               </div>
-              <button
-                onClick={() => clientService.downloadSampleImportTemplate()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shrink-0"
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span>Download Sample Template</span>
-              </button>
-            </div>
-
-            {/* Drag & Drop File Box */}
-            <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-6 text-center space-y-3 bg-slate-50/50 dark:bg-slate-850/40">
-              <div className="mx-auto h-12 w-12 rounded-2xl bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
-                <FileSpreadsheet className="h-6 w-6" />
-              </div>
-              <div>
-                <h4 className="text-xs font-bold text-slate-900 dark:text-white">Upload Excel / CSV Client File</h4>
-                <p className="text-[11px] text-slate-500">Supports .xlsx, .xls, .csv files up to 25MB (max 500 clients per batch)</p>
-              </div>
-
-              <div className="flex justify-center gap-3">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
-                  type="button"
-                  onClick={handleSimulateExcelParse}
-                  className="px-4 py-2 rounded-xl bg-purple-600 text-white font-bold text-xs hover:bg-purple-700 shadow-sm"
+                  onClick={() => clientService.downloadSampleImportTemplate('xlsx')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs transition-colors"
                 >
-                  Parse Sample Excel File
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  <span>Excel Template (.xlsx)</span>
+                </button>
+                <button
+                  onClick={() => clientService.downloadSampleImportTemplate('csv')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 hover:bg-purple-100 text-purple-700 dark:text-purple-300 font-bold text-xs transition-colors"
+                >
+                  <span>CSV Template (.csv)</span>
                 </button>
               </div>
             </div>
 
-            {/* Parsed Preview Table */}
-            {previewImportClients.length > 0 && (
-              <div className="space-y-2 pt-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-900 dark:text-white">
-                    Parsed Preview ({previewImportClients.length} Ready Clients)
-                  </span>
-                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 rounded">
-                    ✓ Validation Passed (0 Errors)
-                  </span>
+            {/* Hidden File Input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleProcessFile(e.target.files[0]);
+                }
+              }}
+              accept=".xlsx,.xls,.csv,.ods,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              className="hidden"
+            />
+
+            {/* Drag & Drop File Upload Box */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => !isParsing && fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer ${
+                isDragging
+                  ? 'border-purple-500 bg-purple-50/80 dark:bg-purple-950/60 scale-[1.01]'
+                  : importFile
+                  ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/30 dark:bg-emerald-950/20'
+                  : 'border-slate-300 dark:border-slate-700 hover:border-purple-400 bg-slate-50/50 dark:bg-slate-850/40'
+              }`}
+            >
+              {isParsing ? (
+                <div className="py-6 flex flex-col items-center justify-center space-y-3">
+                  <Loader2 className="h-8 w-8 text-purple-600 animate-spin" />
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Parsing Excel Spreadsheet & Validating GSTINs...
+                  </p>
+                  <p className="text-[11px] text-slate-500">Auto-extracting PAN, checking duplicates, and mapping columns...</p>
+                </div>
+              ) : importFile ? (
+                <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="mx-auto h-12 w-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                    <CheckCircle2 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center justify-center gap-2">
+                      <span>{importFile.name}</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        ({(importFile.size / 1024).toFixed(1)} KB)
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium">
+                      File loaded and parsed successfully. Review preview below before saving.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-300 text-xs font-semibold"
+                    >
+                      Choose Different File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetImport}
+                      className="px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-1"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="mx-auto h-12 w-12 rounded-2xl bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                    <UploadCloud className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                      Drop Excel (.xlsx, .xls) or CSV file here, or <span className="text-purple-600 dark:text-purple-400 underline">browse</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Supports standard client registers from Tally, Busy, ClearTax, and custom spreadsheets (up to 500 rows)
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="px-4 py-2 rounded-xl bg-purple-600 text-white font-bold text-xs hover:bg-purple-700 shadow-sm transition-colors"
+                    >
+                      Select File to Import
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSimulateExcelParse();
+                      }}
+                      className="px-4 py-2 rounded-xl border border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 text-purple-700 dark:text-purple-300 font-bold text-xs hover:bg-purple-50 transition-colors"
+                    >
+                      Load Sample Demo Data
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Parsing Stats & Errors Summary */}
+            {importResult && (
+              <div className="space-y-3">
+                {/* Metrics Badges */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Total Rows</span>
+                    <p className="text-base font-extrabold text-slate-900 dark:text-white">{importResult.totalRows}</p>
+                  </div>
+                  <div className="p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40">
+                    <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400">Ready to Import</span>
+                    <p className="text-base font-extrabold text-emerald-700 dark:text-emerald-300">{importResult.validCount}</p>
+                  </div>
+                  <div className="p-2.5 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40">
+                    <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">Warnings / Auto-Fixed</span>
+                    <p className="text-base font-extrabold text-amber-700 dark:text-amber-300">{importResult.warningCount}</p>
+                  </div>
+                  <div className="p-2.5 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40">
+                    <span className="text-[10px] uppercase font-bold text-rose-600 dark:text-rose-400">Invalid Rows</span>
+                    <p className="text-base font-extrabold text-rose-700 dark:text-rose-300">{importResult.errorCount}</p>
+                  </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold uppercase text-[10px]">
-                      <tr>
-                        <th className="p-2.5">Legal Name</th>
-                        <th className="p-2.5">GSTIN / PAN</th>
-                        <th className="p-2.5">Entity Type</th>
-                        <th className="p-2.5">Category</th>
-                        <th className="p-2.5">Authorized Contact</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {previewImportClients.map((c) => (
-                        <tr key={c.id}>
-                          <td className="p-2.5 font-bold text-slate-900 dark:text-white">{c.legalName}</td>
-                          <td className="p-2.5 font-mono text-[11px]">{c.gstin}</td>
-                          <td className="p-2.5">{c.entityType}</td>
-                          <td className="p-2.5">{c.category}</td>
-                          <td className="p-2.5">{c.authorizedPerson.name} ({c.authorizedPerson.email})</td>
+                {/* Error messages if any */}
+                {importResult.errors && importResult.errors.length > 0 && (
+                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-300 space-y-1">
+                    {importResult.errors.map((err, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0 text-rose-600" />
+                        <span>{err}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Parsed Preview Table */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>Import Records Preview</span>
+                      <span className="text-[11px] font-normal text-slate-500">
+                        ({importResult.rowDetails.length} rows parsed)
+                      </span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Auto-extracted PANs & normalized filing frequencies shown
+                    </span>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-h-64 overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold uppercase text-[10px] sticky top-0">
+                        <tr>
+                          <th className="p-2.5">Row / Status</th>
+                          <th className="p-2.5">Legal Name & Trade</th>
+                          <th className="p-2.5">GSTIN / PAN</th>
+                          <th className="p-2.5">Entity Constitution</th>
+                          <th className="p-2.5">Scheme & Category</th>
+                          <th className="p-2.5">Authorized Contact</th>
+                          <th className="p-2.5">Assigned Staff</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {importResult.rowDetails.map((item, idx) => (
+                          <tr
+                            key={idx}
+                            className={`hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
+                              item.status === 'ERROR' ? 'bg-rose-50/40 dark:bg-rose-950/20' : ''
+                            }`}
+                          >
+                            <td className="p-2.5 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-[10.5px] text-slate-400">#{item.rowNumber}</span>
+                                {item.status === 'VALID' && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                    <Check className="h-3 w-3" /> Ready
+                                  </span>
+                                )}
+                                {item.status === 'WARNING' && (
+                                  <span
+                                    title={item.messages.join('; ')}
+                                    className="inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                  >
+                                    <AlertTriangle className="h-3 w-3" /> Warning
+                                  </span>
+                                )}
+                                {item.status === 'ERROR' && (
+                                  <span
+                                    title={item.messages.join('; ')}
+                                    className="inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                                  >
+                                    <AlertCircle className="h-3 w-3" /> Failed
+                                  </span>
+                                )}
+                              </div>
+                              {item.messages.length > 0 && (
+                                <p className="text-[9.5px] text-amber-600 dark:text-amber-400 mt-0.5 line-clamp-1 max-w-[140px]" title={item.messages.join(', ')}>
+                                  {item.messages[0]}
+                                </p>
+                              )}
+                            </td>
+                            <td className="p-2.5">
+                              <div className="font-bold text-slate-900 dark:text-white">{item.client.legalName}</div>
+                              {item.client.tradeName !== item.client.legalName && (
+                                <div className="text-[10px] text-slate-400">{item.client.tradeName}</div>
+                              )}
+                            </td>
+                            <td className="p-2.5">
+                              <div className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                                {item.client.gstin}
+                              </div>
+                              <div className="font-mono text-[10px] text-slate-400">
+                                PAN: {item.client.pan}
+                              </div>
+                            </td>
+                            <td className="p-2.5">
+                              <span className="text-slate-700 dark:text-slate-300">{item.client.entityType}</span>
+                              <div className="text-[10px] text-slate-400">{item.client.industry}</div>
+                            </td>
+                            <td className="p-2.5">
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300 border border-brand-200 dark:border-brand-800">
+                                {item.client.filingFrequency}
+                              </span>
+                              <div className="text-[10px] text-slate-400 mt-0.5">{item.client.category}</div>
+                            </td>
+                            <td className="p-2.5">
+                              <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                {item.client.authorizedPerson.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400">{item.client.authorizedPerson.email}</div>
+                            </td>
+                            <td className="p-2.5">
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-750 text-slate-700 dark:text-slate-300">
+                                {item.client.assignedStaff[0]?.staffName || 'Default Staff'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsImportModalOpen(false);
-                  setPreviewImportClients([]);
-                }}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600"
-              >
-                Cancel
-              </button>
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div>
+                {previewImportClients.length > 0 && (
+                  <p className="text-xs text-slate-500">
+                    <strong className="text-slate-800 dark:text-slate-200">{previewImportClients.length}</strong> valid client entities ready to onboard.
+                  </p>
+                )}
+              </div>
 
-              <button
-                type="button"
-                disabled={previewImportClients.length === 0}
-                onClick={handleConfirmImport}
-                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-sm disabled:opacity-50"
-              >
-                Import {previewImportClients.length} Clients to Database
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsImportModalOpen(false);
+                    handleResetImport();
+                  }}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  disabled={previewImportClients.length === 0 || isParsing}
+                  onClick={handleConfirmImport}
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-sm disabled:opacity-50 transition-all"
+                >
+                  <Check className="h-4 w-4" />
+                  <span>Import {previewImportClients.length} Clients to Database</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -831,4 +1211,3 @@ export default function ClientsPage() {
     </Suspense>
   );
 }
-

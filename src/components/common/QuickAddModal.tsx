@@ -26,6 +26,16 @@ export function QuickAddModal({ isOpen, onClose }: QuickAddModalProps) {
       },
     },
     {
+      title: 'Bulk Import Clients (Excel / CSV)',
+      description: 'Batch upload Excel (.xlsx) or CSV registers with automated PAN extraction.',
+      icon: FileSpreadsheet,
+      color: 'bg-purple-600',
+      action: () => {
+        onClose();
+        router.push('/clients?action=import');
+      },
+    },
+    {
       title: 'Upload Purchase Bills / Excel for AI OCR',
       description: 'Upload inward bills (PDF, Images, Excel) for automated extraction and 2B reconciliation.',
       icon: UploadCloud,

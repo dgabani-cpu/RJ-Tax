@@ -1,5 +1,6 @@
-import { INITIAL_CLIENTS, INITIAL_TASKS, INITIAL_RECON_DATA, INITIAL_DOCUMENTS } from '@/lib/db/mockDb';
-import { Client, ClientCategory, Task, ReconciliationItem, DocumentItem } from '@/types';
+import * as XLSX from 'xlsx';
+import { INITIAL_CLIENTS, INITIAL_TASKS, INITIAL_RECON_DATA, INITIAL_DOCUMENTS, INITIAL_USERS } from '@/lib/db/mockDb';
+import { Client, ClientCategory, Task, ReconciliationItem, DocumentItem, EntityType, FilingFrequency, GSTRegistrationType } from '@/types';
 
 export interface ClientHealthStatus {
   status: 'Healthy' | 'Needs Attention' | 'Critical';
@@ -19,6 +20,24 @@ export interface ClientTimelineEvent {
   actorName: string;
   timestamp: string;
   isMockData: boolean;
+}
+
+export interface ParsedClientRow {
+  client: Client;
+  rowNumber: number;
+  status: 'VALID' | 'WARNING' | 'ERROR';
+  messages: string[];
+  rawRow: Record<string, any>;
+}
+
+export interface ClientImportResult {
+  totalRows: number;
+  validCount: number;
+  warningCount: number;
+  errorCount: number;
+  parsedClients: Client[];
+  rowDetails: ParsedClientRow[];
+  errors: string[];
 }
 
 export const clientService = {
@@ -135,96 +154,512 @@ export const clientService = {
     ];
   },
 
-  // Export Clients List to CSV / Excel
-  exportClientsToCSV: (clients: Client[]) => {
-    const headers = [
-      'Client ID',
-      'Legal Name',
-      'Trade Name',
-      'GSTIN',
-      'PAN',
-      'Entity Type',
-      'Category',
-      'Filing Frequency',
-      'GST Reg Type',
-      'Authorized Person',
-      'Email',
-      'Phone',
-      'Status',
-      'Health Status',
-    ];
+  // Parse uploaded Excel (.xlsx, .xls) or CSV (.csv, .txt) file
+  parseClientImportFile: async (
+    file: File,
+    existingClients: Client[] = []
+  ): Promise<ClientImportResult> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
 
-    const rows = clients.map((c) => {
-      const health = clientService.getClientHealth(c);
-      return [
-        `"${c.clientId}"`,
-        `"${c.legalName}"`,
-        `"${c.tradeName}"`,
-        `"${c.gstin}"`,
-        `"${c.pan}"`,
-        `"${c.entityType}"`,
-        `"${c.category}"`,
-        `"${c.filingFrequency}"`,
-        `"${c.gstRegType}"`,
-        `"${c.authorizedPerson.name}"`,
-        `"${c.authorizedPerson.email}"`,
-        `"${c.authorizedPerson.phone}"`,
-        `"${c.status}"`,
-        `"${health.status}"`,
-      ].join(',');
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+
+          if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+            resolve({
+              totalRows: 0,
+              validCount: 0,
+              warningCount: 0,
+              errorCount: 1,
+              parsedClients: [],
+              rowDetails: [],
+              errors: ['The uploaded file contains no readable sheets.'],
+            });
+            return;
+          }
+
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, {
+            defval: '',
+            raw: false,
+          });
+
+          if (!rawRows || rawRows.length === 0) {
+            resolve({
+              totalRows: 0,
+              validCount: 0,
+              warningCount: 0,
+              errorCount: 1,
+              parsedClients: [],
+              rowDetails: [],
+              errors: ['No data rows found in the sheet. Please make sure headers and client records are present.'],
+            });
+            return;
+          }
+
+          const existingGstinSet = new Set(
+            existingClients.map((c) => (c.gstin || '').trim().toUpperCase()).filter(Boolean)
+          );
+          const seenGstinBatch = new Set<string>();
+
+          const rowDetails: ParsedClientRow[] = [];
+          const validClients: Client[] = [];
+          const globalErrors: string[] = [];
+
+          rawRows.forEach((row, index) => {
+            const rowNumber = index + 2; // Row 1 is header
+            const messages: string[] = [];
+            let status: 'VALID' | 'WARNING' | 'ERROR' = 'VALID';
+
+            // Find key values with flexible matcher
+            const getValue = (patterns: RegExp[]): string => {
+              const keys = Object.keys(row);
+              for (const pattern of patterns) {
+                const matchedKey = keys.find((k) => pattern.test(k.trim().toLowerCase()));
+                if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null) {
+                  return String(row[matchedKey]).trim();
+                }
+              }
+              return '';
+            };
+
+            const legalName = getValue([
+              /^legal\s*name$/i,
+              /^party\s*name$/i,
+              /^company\s*name$/i,
+              /^firm\s*name$/i,
+              /^client\s*name$/i,
+              /^business\s*name$/i,
+              /^name$/i,
+              /legal/i,
+              /party/i,
+              /company/i,
+            ]);
+
+            const tradeName = getValue([
+              /^trade\s*name$/i,
+              /^brand\s*name$/i,
+              /^doing\s*business\s*as$/i,
+              /^trade$/i,
+            ]) || legalName;
+
+            let gstin = getValue([
+              /^gstin$/i,
+              /^gst\s*number$/i,
+              /^gst\s*no$/i,
+              /^gst_in$/i,
+              /^gst_no$/i,
+              /^gst$/i,
+              /gstin/i,
+            ]).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+            let pan = getValue([
+              /^pan$/i,
+              /^pan\s*no$/i,
+              /^pan\s*number$/i,
+              /^pan_no$/i,
+              /pan/i,
+            ]).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+            // Derive PAN from GSTIN if PAN is missing
+            if (!pan && gstin.length === 15) {
+              pan = gstin.substring(2, 12);
+              messages.push(`PAN (${pan}) auto-extracted from GSTIN`);
+            }
+
+            // Fallback GSTIN generation if not provided
+            if (!gstin && pan.length === 10) {
+              gstin = `24${pan}1Z5`; // Default Gujarat state code with demo checksum
+              messages.push(`No GSTIN provided; generated placeholder from PAN (${gstin})`);
+              status = 'WARNING';
+            }
+
+            // Validation: Name is mandatory
+            if (!legalName) {
+              status = 'ERROR';
+              messages.push('Missing Legal Name or Business Name');
+            }
+
+            // Validation: GSTIN format
+            if (gstin && gstin.length !== 15) {
+              status = 'WARNING';
+              messages.push(`GSTIN '${gstin}' is not standard 15 characters`);
+            }
+
+            // Duplicate detection
+            if (gstin) {
+              if (existingGstinSet.has(gstin)) {
+                status = 'WARNING';
+                messages.push(`GSTIN '${gstin}' already exists in practice database`);
+              } else if (seenGstinBatch.has(gstin)) {
+                status = 'WARNING';
+                messages.push(`Duplicate GSTIN '${gstin}' in upload batch`);
+              } else {
+                seenGstinBatch.add(gstin);
+              }
+            }
+
+            // Normalize Entity Type
+            const rawEntityType = getValue([
+              /entity\s*type/i,
+              /constitution/i,
+              /organization\s*type/i,
+              /business\s*type/i,
+              /type/i,
+            ]).toLowerCase();
+
+            let entityType: EntityType = 'Private Limited Company';
+            if (rawEntityType.includes('pvt') || rawEntityType.includes('private')) {
+              entityType = 'Private Limited Company';
+            } else if (rawEntityType.includes('public') || rawEntityType.includes('ltd')) {
+              entityType = 'Public Limited Company';
+            } else if (rawEntityType.includes('llp') || rawEntityType.includes('limited liability')) {
+              entityType = 'Limited Liability Partnership (LLP)';
+            } else if (rawEntityType.includes('proprietor') || rawEntityType.includes('individual') || rawEntityType.includes('sole')) {
+              entityType = 'Sole Proprietorship';
+            } else if (rawEntityType.includes('partner') || rawEntityType.includes('firm')) {
+              entityType = 'Partnership Firm';
+            } else if (rawEntityType.includes('trust') || rawEntityType.includes('society') || rawEntityType.includes('aop')) {
+              entityType = 'Trust / Society / AOP';
+            } else if (rawEntityType.includes('huf')) {
+              entityType = 'HUF';
+            } else if (pan.length >= 4) {
+              // Derive from PAN 4th character
+              const fourthChar = pan.charAt(3);
+              if (fourthChar === 'C') entityType = 'Private Limited Company';
+              else if (fourthChar === 'P') entityType = 'Sole Proprietorship';
+              else if (fourthChar === 'F') entityType = 'Partnership Firm';
+              else if (fourthChar === 'T') entityType = 'Trust / Society / AOP';
+              else if (fourthChar === 'H') entityType = 'HUF';
+            }
+
+            // Normalize Category
+            const rawCategory = getValue([/category/i, /tier/i, /segment/i, /grade/i]).toLowerCase();
+            let category: ClientCategory = 'Standard (Category B)';
+            if (rawCategory.includes('a') || rawCategory.includes('enterprise')) {
+              category = 'Enterprise (Category A)';
+            } else if (rawCategory.includes('c') || rawCategory.includes('startup') || rawCategory.includes('sme')) {
+              category = 'Startup / SME (Category C)';
+            }
+
+            // Normalize Filing Frequency
+            const rawFrequency = getValue([/frequency/i, /scheme/i, /qrmp/i, /filing/i]).toLowerCase();
+            let filingFrequency: FilingFrequency = 'Monthly';
+            if (rawFrequency.includes('quarter') || rawFrequency.includes('qrmp')) {
+              filingFrequency = 'Quarterly (QRMP)';
+            }
+
+            // Normalize GST Registration Type
+            const rawRegType = getValue([/reg.*type/i, /taxpayer.*type/i, /gst.*type/i]).toLowerCase();
+            let gstRegType: GSTRegistrationType = 'Regular';
+            if (rawRegType.includes('composition')) gstRegType = 'Composition';
+            else if (rawRegType.includes('sez unit')) gstRegType = 'SEZ Unit';
+            else if (rawRegType.includes('sez dev')) gstRegType = 'SEZ Developer';
+            else if (rawRegType.includes('isd')) gstRegType = 'ISD';
+
+            // Contact details
+            const authPersonName = getValue([
+              /auth.*name/i,
+              /contact.*name/i,
+              /authorized.*person/i,
+              /signatory/i,
+              /director/i,
+              /owner/i,
+              /proprietor/i,
+            ]) || 'Managing Director';
+
+            const authPersonEmail = getValue([
+              /email/i,
+              /e-mail/i,
+              /mail/i,
+            ]) || `accounts@${legalName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'client'}.com`;
+
+            const authPersonPhone = getValue([
+              /phone/i,
+              /mobile/i,
+              /contact\s*no/i,
+              /cell/i,
+            ]) || '+91 98250 00000';
+
+            const address = getValue([
+              /address/i,
+              /location/i,
+              /city/i,
+              /place/i,
+            ]) || 'Gujarat, India';
+
+            const industry = getValue([
+              /industry/i,
+              /sector/i,
+              /activity/i,
+              /nature/i,
+            ]) || 'Trading & Manufacturing';
+
+            // Staff assignment
+            const staffInput = getValue([/staff/i, /assigned/i, /manager/i, /accountant/i]);
+            const matchedStaff = INITIAL_USERS.find(
+              (u) =>
+                u.name.toLowerCase().includes(staffInput.toLowerCase()) ||
+                u.email.toLowerCase().includes(staffInput.toLowerCase())
+            ) || INITIAL_USERS[2] || INITIAL_USERS[0];
+
+            const clientObj: Client = {
+              id: `client-imported-${Date.now()}-${index}`,
+              clientId: `RJT-2026-${String(existingClients.length + index + 1).padStart(3, '0')}`,
+              legalName: legalName || 'Unnamed Entity',
+              tradeName: tradeName || legalName || 'Unnamed Entity',
+              businessName: tradeName || legalName || 'Unnamed Entity',
+              entityType,
+              pan: pan || (gstin.length === 15 ? gstin.substring(2, 12) : 'PANNOTPROV'),
+              gstin: gstin || '24PENDING0000Z1',
+              phone: authPersonPhone,
+              email: authPersonEmail,
+              businessAddress: address,
+              registeredAddress: address,
+              billingAddress: address,
+              authorizedPerson: {
+                name: authPersonName,
+                designation: entityType.includes('Company') ? 'Director' : entityType.includes('LLP') ? 'Designated Partner' : 'Proprietor',
+                phone: authPersonPhone,
+                email: authPersonEmail,
+              },
+              category,
+              industry,
+              gstRegType,
+              filingFrequency,
+              returnType: filingFrequency === 'Monthly' ? 'GSTR-1, GSTR-3B' : 'IFF, GSTR-3B (QRMP)',
+              dueDates: {
+                gstr1: filingFrequency === 'Monthly' ? '11th of month' : '13th of quarter end',
+                gstr3b: '20th of month',
+                reconciliation: '14th of month',
+              },
+              assignedStaff: [
+                {
+                  staffId: matchedStaff.id,
+                  staffName: matchedStaff.name,
+                  staffRole: matchedStaff.designation || 'Associate',
+                  staffEmail: matchedStaff.email,
+                  assignmentType: 'PRIMARY',
+                  assignedAt: new Date().toISOString().split('T')[0],
+                },
+              ],
+              status: 'ACTIVE',
+              createdAt: new Date().toISOString().split('T')[0],
+              updatedAt: new Date().toISOString().split('T')[0],
+            };
+
+            rowDetails.push({
+              client: clientObj,
+              rowNumber,
+              status,
+              messages,
+              rawRow: row,
+            });
+
+            if (status !== 'ERROR') {
+              validClients.push(clientObj);
+            }
+          });
+
+          const validCount = rowDetails.filter((r) => r.status === 'VALID').length;
+          const warningCount = rowDetails.filter((r) => r.status === 'WARNING').length;
+          const errorCount = rowDetails.filter((r) => r.status === 'ERROR').length;
+
+          resolve({
+            totalRows: rawRows.length,
+            validCount,
+            warningCount,
+            errorCount,
+            parsedClients: validClients,
+            rowDetails,
+            errors: globalErrors,
+          });
+        } catch (err: any) {
+          console.error('Error parsing client file:', err);
+          resolve({
+            totalRows: 0,
+            validCount: 0,
+            warningCount: 0,
+            errorCount: 1,
+            parsedClients: [],
+            rowDetails: [],
+            errors: [err?.message || 'Failed to read and parse Excel/CSV document.'],
+          });
+        }
+      };
+
+      reader.onerror = () => {
+        resolve({
+          totalRows: 0,
+          validCount: 0,
+          warningCount: 0,
+          errorCount: 1,
+          parsedClients: [],
+          rowDetails: [],
+          errors: ['Failed to read the uploaded file from your computer.'],
+        });
+      };
+
+      reader.readAsArrayBuffer(file);
     });
-
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `TaxNexus_Client_Directory_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   },
 
-  // Download Sample Excel/CSV Import Template
-  downloadSampleImportTemplate: () => {
-    const headers = [
-      'Legal Name',
-      'Trade Name',
-      'GSTIN',
-      'PAN',
-      'Entity Type',
-      'Category',
-      'Filing Frequency',
-      'GST Reg Type',
-      'Auth Person Name',
-      'Auth Person Email',
-      'Auth Person Phone',
-      'Address',
+  // Export Clients List to Native Excel (.xlsx) or CSV (.csv)
+  exportClientsToCSV: (clients: Client[], format: 'xlsx' | 'csv' = 'xlsx') => {
+    const exportData = clients.map((c) => {
+      const health = clientService.getClientHealth(c);
+      const primaryStaff = c.assignedStaff?.[0]?.staffName || 'Unassigned';
+      return {
+        'Client ID': c.clientId,
+        'Legal Name': c.legalName,
+        'Trade Name': c.tradeName,
+        'GSTIN': c.gstin,
+        'PAN': c.pan,
+        'Entity Type': c.entityType,
+        'Category': c.category,
+        'Filing Scheme': c.filingFrequency,
+        'GST Reg Type': c.gstRegType,
+        'Authorized Person': c.authorizedPerson.name,
+        'Authorized Email': c.authorizedPerson.email,
+        'Authorized Phone': c.authorizedPerson.phone,
+        'Assigned Staff': primaryStaff,
+        'Address': c.businessAddress,
+        'Health Status': health.status,
+        'Health Score': `${health.score}%`,
+        'Status': c.status,
+      };
+    });
+
+    const fileNameDate = new Date().toISOString().split('T')[0];
+
+    if (format === 'xlsx') {
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      worksheet['!cols'] = [
+        { wch: 14 }, // Client ID
+        { wch: 32 }, // Legal Name
+        { wch: 24 }, // Trade Name
+        { wch: 18 }, // GSTIN
+        { wch: 14 }, // PAN
+        { wch: 28 }, // Entity Type
+        { wch: 22 }, // Category
+        { wch: 18 }, // Filing Scheme
+        { wch: 14 }, // GST Reg Type
+        { wch: 20 }, // Auth Person
+        { wch: 26 }, // Auth Email
+        { wch: 16 }, // Auth Phone
+        { wch: 18 }, // Assigned Staff
+        { wch: 35 }, // Address
+        { wch: 16 }, // Health Status
+        { wch: 14 }, // Health Score
+        { wch: 10 }, // Status
+      ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Clients Directory');
+      XLSX.writeFile(workbook, `TaxNexus_Client_Directory_${fileNameDate}.xlsx`);
+    } else {
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
+      const blob = new Blob(['\uFEFF' + csvOutput], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `TaxNexus_Client_Directory_${fileNameDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  },
+
+  // Download Sample Excel/CSV Import Template (.xlsx or .csv)
+  downloadSampleImportTemplate: (format: 'xlsx' | 'csv' = 'xlsx') => {
+    const sampleRows = [
+      {
+        'Legal Name': 'Gujarat Alkali & Chemicals Ltd',
+        'Trade Name': 'GACL Chemicals',
+        'GSTIN': '24AAACG1234F1ZP',
+        'PAN': 'AAACG1234F',
+        'Entity Type': 'Public Limited Company',
+        'Category': 'Enterprise (Category A)',
+        'Filing Frequency': 'Monthly',
+        'GST Reg Type': 'Regular',
+        'Auth Person Name': 'Mukesh Patel',
+        'Auth Person Email': 'mukesh.patel@gacl.co.in',
+        'Auth Person Phone': '+91 98250 88776',
+        'Address': 'GIDC Nandesari, Vadodara, Gujarat 391340',
+        'Industry': 'Chemical Manufacturing',
+        'Assigned Staff': 'Amit Verma',
+      },
+      {
+        'Legal Name': 'Torrent Logistics & Cold Storage LLP',
+        'Trade Name': 'Torrent Logistics',
+        'GSTIN': '24AAACT5678K1ZQ',
+        'PAN': 'AAACT5678K',
+        'Entity Type': 'Limited Liability Partnership (LLP)',
+        'Category': 'Standard (Category B)',
+        'Filing Frequency': 'Monthly',
+        'GST Reg Type': 'Regular',
+        'Auth Person Name': 'Nitin Shah',
+        'Auth Person Email': 'nitin@torrentlogistics.com',
+        'Auth Person Phone': '+91 97129 44332',
+        'Address': 'Changodar Industrial Zone, Ahmedabad, Gujarat 382213',
+        'Industry': 'Logistics & Cold Storage',
+        'Assigned Staff': 'Sneha Patel',
+      },
+      {
+        'Legal Name': 'Apex Digital Solutions Proprietary Concern',
+        'Trade Name': 'Apex Tech Labs',
+        'GSTIN': '24BPWPA9876Q1Z2',
+        'PAN': 'BPWPA9876Q',
+        'Entity Type': 'Sole Proprietorship',
+        'Category': 'Startup / SME (Category C)',
+        'Filing Frequency': 'Quarterly (QRMP)',
+        'GST Reg Type': 'Regular',
+        'Auth Person Name': 'Pooja Sharma',
+        'Auth Person Email': 'pooja@apextechlabs.io',
+        'Auth Person Phone': '+91 98980 12345',
+        'Address': '402 Synergy Tower, SG Highway, Ahmedabad 380054',
+        'Industry': 'IT & Software Services',
+        'Assigned Staff': 'Neel Gabani',
+      },
     ];
 
-    const sampleRow = [
-      '"Reliance Retail Traders Private Limited"',
-      '"Reliance Retail"',
-      '"24AAACR1234F1Z8"',
-      '"AAACR1234F"',
-      '"Private Limited"',
-      '"Enterprise A"',
-      '"Monthly"',
-      '"Regular"',
-      '"Rajesh Sharma"',
-      '"rajesh@relianceretail.com"',
-      '"+91 98250 11223"',
-      '"101 CG Road Ahmedabad Gujarat 380009"',
-    ].join(',');
-
-    const csvContent = [headers.join(','), sampleRow].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `TaxNexus_Clients_Import_Template.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (format === 'xlsx') {
+      const worksheet = XLSX.utils.json_to_sheet(sampleRows);
+      worksheet['!cols'] = [
+        { wch: 35 }, // Legal Name
+        { wch: 22 }, // Trade Name
+        { wch: 18 }, // GSTIN
+        { wch: 14 }, // PAN
+        { wch: 28 }, // Entity Type
+        { wch: 24 }, // Category
+        { wch: 18 }, // Filing Frequency
+        { wch: 14 }, // GST Reg Type
+        { wch: 20 }, // Auth Person Name
+        { wch: 28 }, // Auth Person Email
+        { wch: 18 }, // Auth Person Phone
+        { wch: 45 }, // Address
+        { wch: 25 }, // Industry
+        { wch: 18 }, // Assigned Staff
+      ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Client Import Template');
+      XLSX.writeFile(workbook, 'TaxNexus_Clients_Import_Template.xlsx');
+    } else {
+      const worksheet = XLSX.utils.json_to_sheet(sampleRows);
+      const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
+      const blob = new Blob(['\uFEFF' + csvOutput], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'TaxNexus_Clients_Import_Template.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
   },
 };
