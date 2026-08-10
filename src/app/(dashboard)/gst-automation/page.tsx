@@ -21,11 +21,13 @@ import {
   Server,
   Zap,
 } from 'lucide-react';
-import { INITIAL_GST_VAULTS, INITIAL_CLIENTS } from '@/lib/db/mockDb';
-import { GSTCredentialVault } from '@/types';
+import { INITIAL_GST_VAULTS } from '@/lib/db/mockDb';
+import { GSTCredentialVault, Client } from '@/types';
+import { clientService } from '@/services/clientService';
 
 export default function GSTAutomationPage() {
   const { user, hasPermission, logAuditAction } = useAuth();
+  const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
   const [vaults, setVaults] = useState<GSTCredentialVault[]>(INITIAL_GST_VAULTS);
   const [selectedVault, setSelectedVault] = useState<GSTCredentialVault | null>(null);
   const [isTestConnecting, setIsTestConnecting] = useState<string | null>(null);
@@ -33,7 +35,27 @@ export default function GSTAutomationPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   // New Credential Form
-  const [newClientId, setNewClientId] = useState(INITIAL_CLIENTS[0]?.id || '');
+  const [newClientId, setNewClientId] = useState<string>(() => {
+    const all = clientService.getClients();
+    return all[0]?.id || '';
+  });
+
+  React.useEffect(() => {
+    const allClients = clientService.getClients();
+    setClients(allClients);
+    if (!newClientId && allClients.length > 0) {
+      setNewClientId(allClients[0].id);
+    }
+    const handleUpdate = () => {
+      const updated = clientService.getClients();
+      setClients(updated);
+      if (!newClientId && updated.length > 0) {
+        setNewClientId(updated[0].id);
+      }
+    };
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, []);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newConnectionMode, setNewConnectionMode] = useState<'OFFICIAL_GSP_API' | 'ASSISTED_PORTAL_SESSION'>('OFFICIAL_GSP_API');
@@ -63,7 +85,7 @@ export default function GSTAutomationPage() {
 
   const handleSaveCredential = (e: React.FormEvent) => {
     e.preventDefault();
-    const targetClient = INITIAL_CLIENTS.find((c) => c.id === newClientId) || INITIAL_CLIENTS[0] || {
+    const targetClient = clients.find((c) => c.id === newClientId) || clients[0] || {
       id: 'client-1',
       legalName: 'Practice Client',
       gstin: '24AAAAA0000A1Z5',
@@ -252,7 +274,7 @@ export default function GSTAutomationPage() {
                   onChange={(e) => setNewClientId(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                 >
-                  {INITIAL_CLIENTS.map((c) => (
+                  {clients.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.legalName} ({c.gstin})
                     </option>

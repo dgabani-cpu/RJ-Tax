@@ -17,15 +17,25 @@ import {
   ArrowRight,
   Filter,
 } from 'lucide-react';
-import { INITIAL_TASKS, INITIAL_CLIENTS, INITIAL_RECON_DATA } from '@/lib/db/mockDb';
+import { INITIAL_TASKS, INITIAL_RECON_DATA } from '@/lib/db/mockDb';
 import { INITIAL_DOCUMENT_REQUESTS } from '@/services/documentService';
+import { Client } from '@/types';
+import { clientService } from '@/services/clientService';
 
 function MyWorkContent() {
   const { user, canAccessClient } = useAuth();
+  const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
   const [activeTab, setActiveTab] = useState<'TODAY' | 'OVERDUE' | 'UPCOMING' | 'WAITING' | 'COMPLETED'>('TODAY');
 
+  React.useEffect(() => {
+    setClients(clientService.getClients());
+    const handleUpdate = () => setClients(clientService.getClients());
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, []);
+
   // Filter clients assigned to this staff member
-  const accessibleClients = INITIAL_CLIENTS.filter((c) => canAccessClient(c));
+  const accessibleClients = clients.filter((c) => canAccessClient(c));
   const accessibleClientIds = accessibleClients.map((c) => c.id);
 
   // Filter tasks assigned to staff or accessible clients

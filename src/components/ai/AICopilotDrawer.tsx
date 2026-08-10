@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { Sparkles, X, Send, Bot, User, ArrowRight, CheckCircle2, ShieldCheck, Copy, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { INITIAL_CLIENTS, INITIAL_RECON_DATA, INITIAL_TASKS } from '@/lib/db/mockDb';
+import { INITIAL_RECON_DATA, INITIAL_TASKS } from '@/lib/db/mockDb';
+import { clientService } from '@/services/clientService';
 
 interface AICopilotDrawerProps {
   isOpen: boolean;
@@ -106,9 +107,10 @@ export function AICopilotDrawer({ isOpen, onClose }: AICopilotDrawerProps) {
           '2. **No 5% Provisional ITC**: The earlier 5% provisional credit window under Rule 36(4) has been omitted. 100% strict 2B matching applies.\n' +
           '3. **180-Day Rule (Second Proviso to Sec 16(2))**: The recipient must pay the supplier the value of supply + tax within 180 days from invoice date, otherwise ITC must be reversed with interest.';
       } else {
+        const clientCount = clientService.getClients().length;
         aiResponse.text =
           `I have processed your query: "${textToSend}". In your practice today:\n` +
-          `• **${INITIAL_CLIENTS.length} Total Clients** under active management\n` +
+          `• **${clientCount} Total Clients** under active management\n` +
           `• **${INITIAL_TASKS.filter((t) => t.status !== 'COMPLETED').length} Active Practice Tasks** pending completion\n` +
           `• **July 2026 GSTR-2B Sync** is 80% completed across regular tax filers.`;
       }

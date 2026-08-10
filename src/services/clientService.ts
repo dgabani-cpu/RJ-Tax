@@ -40,15 +40,88 @@ export interface ClientImportResult {
   errors: string[];
 }
 
+const CLIENTS_STORAGE_KEY = 'tax_nexus_clients_v2';
+
 export const clientService = {
+  // Synchronous and safe access to current clients list from localStorage
+  getClients: (): Client[] => {
+    if (typeof window === 'undefined') {
+      return INITIAL_CLIENTS;
+    }
+    try {
+      const stored = localStorage.getItem(CLIENTS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading clients from localStorage:', e);
+    }
+    return INITIAL_CLIENTS;
+  },
+
+  // Save clients to localStorage & notify other components
+  saveClients: (clients: Client[]): void => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clients));
+        window.dispatchEvent(new CustomEvent('taxnexus:clients-updated', { detail: clients }));
+      } catch (e) {
+        console.error('Error saving clients to localStorage:', e);
+      }
+    }
+  },
+
+  // Add single client and persist
+  addClient: (client: Client): Client[] => {
+    const current = clientService.getClients();
+    const updated = [client, ...current.filter((c) => c.id !== client.id && c.gstin !== client.gstin)];
+    clientService.saveClients(updated);
+    return updated;
+  },
+
+  // Add multiple clients (e.g. from Excel/CSV bulk import) and persist
+  addClients: (newClients: Client[]): Client[] => {
+    const current = clientService.getClients();
+    const existingGstinSet = new Set(current.map((c) => (c.gstin || '').toUpperCase()));
+    const filteredNew = newClients.filter((c) => !existingGstinSet.has((c.gstin || '').toUpperCase()));
+    const updated = [...filteredNew, ...current];
+    clientService.saveClients(updated);
+    return updated;
+  },
+
+  // Update existing client
+  updateClient: (updatedClient: Client): Client[] => {
+    const current = clientService.getClients();
+    const updated = current.map((c) => (c.id === updatedClient.id ? updatedClient : c));
+    clientService.saveClients(updated);
+    return updated;
+  },
+
+  // Delete client
+  deleteClient: (clientId: string): Client[] => {
+    const current = clientService.getClients();
+    const updated = current.filter((c) => c.id !== clientId);
+    clientService.saveClients(updated);
+    return updated;
+  },
+
   // Fetch all clients
   getAllClients: async (): Promise<Client[]> => {
-    return INITIAL_CLIENTS;
+    return clientService.getClients();
   },
 
   // Fetch single client by ID
   getClientById: async (id: string): Promise<Client | undefined> => {
-    return INITIAL_CLIENTS.find((c) => c.id === id || c.clientId === id);
+    return clientService.getClientByIdSync(id);
+  },
+
+  // Synchronous client lookup by id or clientId
+  getClientByIdSync: (id: string): Client | undefined => {
+    const all = clientService.getClients();
+    return all.find((c) => c.id === id || c.clientId === id);
   },
 
   // Calculate client health dynamically based on real items

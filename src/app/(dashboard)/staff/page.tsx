@@ -18,7 +18,7 @@ import {
   Search,
   Lock,
 } from 'lucide-react';
-import { INITIAL_USERS, DEFAULT_PERMISSIONS, INITIAL_CLIENTS } from '@/lib/db/mockDb';
+import { INITIAL_USERS, DEFAULT_PERMISSIONS } from '@/lib/db/mockDb';
 import { User, RoleType } from '@/types';
 
 export default function StaffPage() {

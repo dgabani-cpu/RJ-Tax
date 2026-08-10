@@ -22,24 +22,36 @@ import {
   Check,
 } from 'lucide-react';
 import {
-  INITIAL_CLIENTS,
   INITIAL_COMMUNICATION_TEMPLATES,
   INITIAL_SCHEDULED_MESSAGES,
 } from '@/lib/db/mockDb';
-import { CommunicationTemplate, ScheduledMessage } from '@/types';
+import { CommunicationTemplate, ScheduledMessage, Client } from '@/types';
+import { clientService } from '@/services/clientService';
 
 function CommunicationContent() {
   const searchParams = useSearchParams();
   const initialAction = searchParams.get('action');
 
   const { user, logAuditAction } = useAuth();
+  const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
   const [activeChannel, setActiveChannel] = useState<'ALL' | 'WHATSAPP' | 'EMAIL'>('ALL');
   const [templates, setTemplates] = useState<CommunicationTemplate[]>(INITIAL_COMMUNICATION_TEMPLATES);
   const [scheduledList, setScheduledList] = useState<ScheduledMessage[]>(INITIAL_SCHEDULED_MESSAGES);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(templates[0].id);
-  const [selectedClients, setSelectedClients] = useState<string[]>(INITIAL_CLIENTS.map((c) => c.id));
+  const [selectedClients, setSelectedClients] = useState<string[]>(() => clientService.getClients().map((c) => c.id));
   const [isSending, setIsSending] = useState(false);
   const [sendSuccessAlert, setSendSuccessAlert] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const allClients = clientService.getClients();
+    setClients(allClients);
+    const handleUpdate = () => {
+      const updated = clientService.getClients();
+      setClients(updated);
+    };
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, []);
 
   // Scheduling state
   const [scheduleTime, setScheduleTime] = useState('2026-08-10 10:00 AM');
@@ -56,10 +68,10 @@ function CommunicationContent() {
   };
 
   const handleSelectAllClients = () => {
-    if (selectedClients.length === INITIAL_CLIENTS.length) {
+    if (selectedClients.length === clients.length) {
       setSelectedClients([]);
     } else {
-      setSelectedClients(INITIAL_CLIENTS.map((c) => c.id));
+      setSelectedClients(clients.map((c) => c.id));
     }
   };
 
@@ -329,12 +341,12 @@ function CommunicationContent() {
                 onClick={handleSelectAllClients}
                 className="text-[11px] font-bold text-brand-600 hover:underline"
               >
-                {selectedClients.length === INITIAL_CLIENTS.length ? 'Deselect All' : 'Select All'}
+                {selectedClients.length === clients.length ? 'Deselect All' : 'Select All'}
               </button>
             </div>
 
             <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
-              {INITIAL_CLIENTS.map((c) => {
+              {clients.map((c) => {
                 const isSelected = selectedClients.includes(c.id);
                 return (
                   <div

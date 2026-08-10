@@ -63,50 +63,69 @@ export default function ClientProfilePage() {
   const router = useRouter();
   const { user, logAuditAction } = useAuth();
 
-  const client = INITIAL_CLIENTS.find((c) => c.id === clientId) || INITIAL_CLIENTS[0] || {
-    id: clientId,
-    clientId: `TN-2026-001`,
-    legalName: 'Practice Client',
-    tradeName: 'Trade Client',
-    businessName: 'Practice Business Enterprise',
-    entityType: 'Private Limited Company',
-    pan: 'AABCA1234F',
-    gstin: '24AABCA1234F1Z5',
-    phone: '+91 98250 00000',
-    email: 'client@taxnexus.io',
-    businessAddress: 'Practice City, Gujarat',
-    registeredAddress: 'Practice City, Gujarat',
-    billingAddress: 'Practice City, Gujarat',
-    authorizedPerson: {
-      name: 'Authorized Signatory',
-      designation: 'Director',
-      phone: '+91 98250 00000',
-      email: 'signatory@taxnexus.io',
-    },
-    category: 'Standard (Category B)',
-    industry: 'Manufacturing & Services',
-    gstRegType: 'Regular',
-    filingFrequency: 'Monthly',
-    returnType: 'GSTR-1, GSTR-3B',
-    dueDates: {
-      gstr1: '11th of month',
-      gstr3b: '20th of month',
-      reconciliation: '14th of month',
-    },
-    assignedStaff: [
-      {
-        staffId: 'usr-1',
-        staffName: 'Neel Gabani',
-        staffRole: 'Super Admin',
-        staffEmail: 'admin@taxnexus.io',
-        assignmentType: 'PRIMARY',
-        assignedAt: '2026-08-09',
-      },
-    ],
-    status: 'ACTIVE',
-    createdAt: '2026-08-09',
-    updatedAt: '2026-08-09',
-  };
+  const [client, setClient] = useState<Client>(() => {
+    return (
+      clientService.getClientByIdSync(clientId) || {
+        id: clientId,
+        clientId: `RJT-2026-001`,
+        legalName: 'Practice Client',
+        tradeName: 'Practice Client',
+        businessName: 'Practice Client',
+        entityType: 'Private Limited Company',
+        pan: 'AAACG1234F',
+        gstin: '24AAACG1234F1ZP',
+        phone: '+91 98250 00000',
+        email: 'client@taxnexus.io',
+        businessAddress: 'Practice City, Gujarat',
+        registeredAddress: 'Practice City, Gujarat',
+        billingAddress: 'Practice City, Gujarat',
+        authorizedPerson: {
+          name: 'Authorized Signatory',
+          designation: 'Director',
+          phone: '+91 98250 00000',
+          email: 'signatory@taxnexus.io',
+        },
+        category: 'Standard (Category B)',
+        industry: 'Manufacturing & Services',
+        gstRegType: 'Regular',
+        filingFrequency: 'Monthly',
+        returnType: 'GSTR-1, GSTR-3B',
+        dueDates: {
+          gstr1: '11th of month',
+          gstr3b: '20th of month',
+          reconciliation: '14th of month',
+        },
+        assignedStaff: [
+          {
+            staffId: 'usr-1',
+            staffName: 'Neel Gabani',
+            staffRole: 'Super Admin',
+            staffEmail: 'admin@taxnexus.io',
+            assignmentType: 'PRIMARY',
+            assignedAt: '2026-08-09',
+          },
+        ],
+        status: 'ACTIVE',
+        createdAt: '2026-08-09',
+        updatedAt: '2026-08-09',
+      }
+    );
+  });
+
+  React.useEffect(() => {
+    const loaded = clientService.getClientByIdSync(clientId);
+    if (loaded) {
+      setClient(loaded);
+    }
+
+    const handleUpdate = () => {
+      const updated = clientService.getClientByIdSync(clientId);
+      if (updated) setClient(updated);
+    };
+
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, [clientId]);
   const vault: GSTCredentialVault = INITIAL_GST_VAULTS.find((v) => v.clientId === client.id) || {
     id: 'vault-default',
     clientId: client.id,

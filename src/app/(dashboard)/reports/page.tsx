@@ -15,15 +15,39 @@ import {
   TrendingUp,
   PieChart,
 } from 'lucide-react';
-import { INITIAL_CLIENTS, INITIAL_RECON_DATA } from '@/lib/db/mockDb';
+import { INITIAL_RECON_DATA } from '@/lib/db/mockDb';
+import { Client } from '@/types';
+import { clientService } from '@/services/clientService';
 
 export default function ReportsPage() {
   const { user, logAuditAction } = useAuth();
-  const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0]?.id || '');
+  const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
+  const [selectedClientId, setSelectedClientId] = useState<string>(() => {
+    const all = clientService.getClients();
+    return all[0]?.id || '';
+  });
+
+  React.useEffect(() => {
+    const allClients = clientService.getClients();
+    setClients(allClients);
+    if (!selectedClientId && allClients.length > 0) {
+      setSelectedClientId(allClients[0].id);
+    }
+    const handleUpdate = () => {
+      const updated = clientService.getClients();
+      setClients(updated);
+      if (!selectedClientId && updated.length > 0) {
+        setSelectedClientId(updated[0].id);
+      }
+    };
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, []);
+
   const [selectedPeriod, setSelectedPeriod] = useState('July 2026');
   const [selectedReportType, setSelectedReportType] = useState('GSTR2B_RECON_SUMMARY');
 
-  const client = INITIAL_CLIENTS.find((c) => c.id === selectedClientId) || INITIAL_CLIENTS[0] || {
+  const client = clients.find((c) => c.id === selectedClientId) || clients[0] || {
     id: 'client-1',
     legalName: 'Practice Client',
     gstin: '24AAAAA0000A1Z5',
@@ -111,7 +135,7 @@ export default function ReportsPage() {
             onChange={(e) => setSelectedClientId(e.target.value)}
             className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold"
           >
-            {INITIAL_CLIENTS.map((c) => (
+            {clients.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.legalName} ({c.gstin})
               </option>

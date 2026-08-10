@@ -21,12 +21,14 @@ import {
   CheckCircle2,
   Clock,
 } from 'lucide-react';
-import { INITIAL_DOCUMENTS, INITIAL_CLIENTS } from '@/lib/db/mockDb';
+import { INITIAL_DOCUMENTS } from '@/lib/db/mockDb';
 import { documentService, DocumentRequestItem, INITIAL_DOCUMENT_REQUESTS } from '@/services/documentService';
-import { DocumentItem } from '@/types';
+import { DocumentItem, Client } from '@/types';
+import { clientService } from '@/services/clientService';
 
 export default function DocumentsPage() {
   const { user, hasPermission, logAuditAction } = useAuth();
+  const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
   const [documents, setDocuments] = useState<DocumentItem[]>(INITIAL_DOCUMENTS);
   const [requests, setRequests] = useState<DocumentRequestItem[]>(INITIAL_DOCUMENT_REQUESTS);
   const [activeTab, setActiveTab] = useState<'VAULT' | 'REQUESTS'>('VAULT');
@@ -37,7 +39,27 @@ export default function DocumentsPage() {
 
   // Request Modal State
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
-  const [reqClientId, setReqClientId] = useState(INITIAL_CLIENTS[0]?.id || '');
+  const [reqClientId, setReqClientId] = useState<string>(() => {
+    const all = clientService.getClients();
+    return all[0]?.id || '';
+  });
+
+  React.useEffect(() => {
+    const allClients = clientService.getClients();
+    setClients(allClients);
+    if (!reqClientId && allClients.length > 0) {
+      setReqClientId(allClients[0].id);
+    }
+    const handleUpdate = () => {
+      const updated = clientService.getClients();
+      setClients(updated);
+      if (!reqClientId && updated.length > 0) {
+        setReqClientId(updated[0].id);
+      }
+    };
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, []);
   const [reqDocType, setReqDocType] = useState<DocumentRequestItem['documentType']>('Purchase Bills');
   const [reqMonth, setReqMonth] = useState('July 2026');
   const [reqDueDate, setReqDueDate] = useState('2026-08-10');
@@ -67,7 +89,7 @@ export default function DocumentsPage() {
 
   const handleCreateRequest = (e: React.FormEvent) => {
     e.preventDefault();
-    const targetClient = INITIAL_CLIENTS.find((c) => c.id === reqClientId) || INITIAL_CLIENTS[0] || {
+    const targetClient = clients.find((c) => c.id === reqClientId) || clients[0] || {
       id: 'client-1',
       legalName: 'Practice Client',
     };
@@ -179,7 +201,7 @@ export default function DocumentsPage() {
                 className="text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-slate-700 dark:text-slate-300"
               >
                 <option value="ALL">All Clients</option>
-                {INITIAL_CLIENTS.map((c) => (
+                {clients.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.legalName}
                   </option>
@@ -288,7 +310,7 @@ export default function DocumentsPage() {
               <div>
                 <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Target Client *</label>
                 <select value={reqClientId} onChange={(e) => setReqClientId(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white">
-                  {INITIAL_CLIENTS.map((c) => (
+                  {clients.map((c) => (
                     <option key={c.id} value={c.id}>{c.legalName}</option>
                   ))}
                 </select>

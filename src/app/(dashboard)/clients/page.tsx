@@ -38,7 +38,7 @@ function ClientsContent() {
   const initialAction = searchParams.get('action');
 
   const { user, hasPermission, logAuditAction } = useAuth();
-  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
+  const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [filterFrequency, setFilterFrequency] = useState<string>('ALL');
@@ -54,6 +54,33 @@ function ClientsContent() {
   const [isDragging, setIsDragging] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load and subscribe to persistent client storage
+  React.useEffect(() => {
+    setClients(clientService.getClients());
+
+    const handleClientsUpdated = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setClients(e.detail);
+      } else {
+        setClients(clientService.getClients());
+      }
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'tax_nexus_clients_v2') {
+        setClients(clientService.getClients());
+      }
+    };
+
+    window.addEventListener('taxnexus:clients-updated' as any, handleClientsUpdated);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('taxnexus:clients-updated' as any, handleClientsUpdated);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
 
   // Handle Real File Selection
   const handleProcessFile = async (file: File) => {
@@ -221,7 +248,8 @@ function ClientsContent() {
 
   const handleConfirmImport = () => {
     if (previewImportClients.length === 0) return;
-    setClients((prev) => [...previewImportClients, ...prev]);
+    const updated = clientService.addClients(previewImportClients);
+    setClients(updated);
     logAuditAction(
       'Bulk Clients Imported via Excel',
       'CLIENT',
@@ -341,7 +369,8 @@ function ClientsContent() {
       updatedAt: new Date().toISOString().split('T')[0],
     };
 
-    setClients([createdClient, ...clients]);
+    const updated = clientService.addClient(createdClient);
+    setClients(updated);
     setIsNewClientModalOpen(false);
     logAuditAction('Client Profile Created', 'CLIENT', createdClient.legalName, `Registered GSTIN: ${createdClient.gstin}`);
     setNotification({

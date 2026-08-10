@@ -18,14 +18,16 @@ import {
   Kanban,
   List,
 } from 'lucide-react';
-import { INITIAL_TASKS, INITIAL_CLIENTS, INITIAL_USERS } from '@/lib/db/mockDb';
-import { Task } from '@/types';
+import { INITIAL_TASKS, INITIAL_USERS } from '@/lib/db/mockDb';
+import { Task, Client } from '@/types';
+import { clientService } from '@/services/clientService';
 
 function TasksContent() {
   const searchParams = useSearchParams();
   const initialAction = searchParams.get('action');
 
   const { user, logAuditAction } = useAuth();
+  const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
   const [viewMode, setViewMode] = useState<'KANBAN' | 'LIST'>('KANBAN');
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,7 +36,27 @@ function TasksContent() {
 
   // New task form state
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskClientId, setNewTaskClientId] = useState(INITIAL_CLIENTS[0]?.id || '');
+  const [newTaskClientId, setNewTaskClientId] = useState<string>(() => {
+    const all = clientService.getClients();
+    return all[0]?.id || '';
+  });
+
+  React.useEffect(() => {
+    const allClients = clientService.getClients();
+    setClients(allClients);
+    if (!newTaskClientId && allClients.length > 0) {
+      setNewTaskClientId(allClients[0].id);
+    }
+    const handleUpdate = () => {
+      const updated = clientService.getClients();
+      setClients(updated);
+      if (!newTaskClientId && updated.length > 0) {
+        setNewTaskClientId(updated[0].id);
+      }
+    };
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, []);
   const [newTaskStaffId, setNewTaskStaffId] = useState(INITIAL_USERS[0]?.id || 'usr-1');
   const [newTaskPriority, setNewTaskPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('HIGH');
   const [newTaskDueDate, setNewTaskDueDate] = useState('2026-08-15');
@@ -58,7 +80,7 @@ function TasksContent() {
 
   const handleCreateTask = (e: React.FormEvent) => {
     e.preventDefault();
-    const targetClient = INITIAL_CLIENTS.find((c) => c.id === newTaskClientId) || INITIAL_CLIENTS[0] || {
+    const targetClient = clients.find((c) => c.id === newTaskClientId) || clients[0] || {
       id: 'client-1',
       legalName: 'Practice Client',
     };
@@ -313,7 +335,7 @@ function TasksContent() {
                     onChange={(e) => setNewTaskClientId(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   >
-                    {INITIAL_CLIENTS.map((c) => (
+                    {clients.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.legalName}
                       </option>

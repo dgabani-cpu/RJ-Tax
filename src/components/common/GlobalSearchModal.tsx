@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Users, FileText, CheckSquare, RefreshCw, X, ArrowRight, Building2, UserCheck } from 'lucide-react';
-import { INITIAL_CLIENTS, INITIAL_TASKS, INITIAL_DOCUMENTS, INITIAL_RECON_DATA, INITIAL_USERS } from '@/lib/db/mockDb';
+import { INITIAL_TASKS, INITIAL_DOCUMENTS, INITIAL_RECON_DATA, INITIAL_USERS } from '@/lib/db/mockDb';
+import { clientService } from '@/services/clientService';
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -34,15 +35,16 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
   const searchResults = useMemo(() => {
     if (!query.trim()) return null;
     const q = query.toLowerCase();
+    const allClients = clientService.getClients();
 
-    const matchedClients = INITIAL_CLIENTS.filter(
+    const matchedClients = allClients.filter(
       (c) =>
         c.legalName.toLowerCase().includes(q) ||
         c.tradeName.toLowerCase().includes(q) ||
         c.gstin.toLowerCase().includes(q) ||
         c.pan.toLowerCase().includes(q) ||
         c.email.toLowerCase().includes(q) ||
-        c.authorizedPerson.name.toLowerCase().includes(q)
+        c.authorizedPerson?.name?.toLowerCase().includes(q)
     );
 
     const matchedTasks = INITIAL_TASKS.filter(

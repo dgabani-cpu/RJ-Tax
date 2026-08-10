@@ -21,14 +21,38 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react';
-import { INITIAL_CLIENTS, INITIAL_GST_VAULTS } from '@/lib/db/mockDb';
+import { INITIAL_GST_VAULTS } from '@/lib/db/mockDb';
+import { Client } from '@/types';
+import { clientService } from '@/services/clientService';
 
 function GSTR2BContent() {
   const searchParams = useSearchParams();
-  const initialClientId = searchParams.get('clientId') || INITIAL_CLIENTS[0]?.id || '';
-
   const { user, logAuditAction } = useAuth();
-  const [selectedClientId, setSelectedClientId] = useState(initialClientId);
+  const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
+  const [selectedClientId, setSelectedClientId] = useState<string>(() => {
+    const fromQuery = searchParams.get('clientId');
+    if (fromQuery) return fromQuery;
+    const all = clientService.getClients();
+    return all[0]?.id || '';
+  });
+
+  React.useEffect(() => {
+    const allClients = clientService.getClients();
+    setClients(allClients);
+    if (!selectedClientId && allClients.length > 0) {
+      setSelectedClientId(allClients[0].id);
+    }
+    const handleUpdate = () => {
+      const updated = clientService.getClients();
+      setClients(updated);
+      if (!selectedClientId && updated.length > 0) {
+        setSelectedClientId(updated[0].id);
+      }
+    };
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, []);
+
   const [selectedPeriod, setSelectedPeriod] = useState('July 2026');
   const [selectedFY, setSelectedFY] = useState('2026-27');
 
@@ -39,7 +63,7 @@ function GSTR2BContent() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [preview2BInvoices, setPreview2BInvoices] = useState<any[]>([]);
 
-  const client = INITIAL_CLIENTS.find((c) => c.id === selectedClientId) || INITIAL_CLIENTS[0] || {
+  const client = clients.find((c) => c.id === selectedClientId) || clients[0] || {
     id: 'client-default',
     legalName: 'Practice Client',
     gstin: '24AAAAA0000A1Z5',
@@ -199,7 +223,7 @@ function GSTR2BContent() {
               onChange={(e) => setSelectedClientId(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold"
             >
-              {INITIAL_CLIENTS.map((c) => (
+              {clients.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.legalName} ({c.gstin})
                 </option>

@@ -28,22 +28,31 @@ import {
   UploadCloud,
 } from 'lucide-react';
 import {
-  INITIAL_CLIENTS,
   INITIAL_TASKS,
   INITIAL_RECON_DATA,
   INITIAL_USERS,
   INITIAL_SCHEDULED_MESSAGES,
 } from '@/lib/db/mockDb';
+import { clientService } from '@/services/clientService';
+import { Client } from '@/types';
 
 export default function DashboardPage() {
   const { user, auditLogs, logAuditAction } = useAuth();
 
   const [selectedFY, setSelectedFY] = useState('2026-27');
   const [selectedMonth, setSelectedMonth] = useState('July 2026');
+  const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
+
+  React.useEffect(() => {
+    setClients(clientService.getClients());
+    const handleUpdate = () => setClients(clientService.getClients());
+    window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
+    return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
+  }, []);
 
   // Aggregated Practice Metrics
-  const totalClients = INITIAL_CLIENTS.length;
-  const activeClients = INITIAL_CLIENTS.filter((c) => c.status === 'ACTIVE').length;
+  const totalClients = clients.length;
+  const activeClients = clients.filter((c) => c.status === 'ACTIVE').length;
   const pendingTasks = INITIAL_TASKS.filter((t) => t.status !== 'COMPLETED').length;
   const missingIn2BCount = INITIAL_RECON_DATA.filter((r) => r.matchCategory === 'MISSING_IN_GSTR2B').length;
   const missingIn2BValue = 0;
