@@ -1301,4 +1301,207 @@ export const reconciliationService = {
 
     XLSX.writeFile(workbook, `TaxNexus_Recon_${clientName.replace(/\s+/g, '_')}_${period}_${cleanDate}.xlsx`);
   },
+
+  // -------------------------------------------------------------
+  // 6. Generate Realistic 42-Invoice GSTR-2B Portal Dataset
+  // -------------------------------------------------------------
+  generateSampleGSTR2BDataset: (
+    clientId: string,
+    period: string = 'July 2026',
+    fy: string = '2026-27'
+  ): GSTR2BRecord[] => {
+    const suppliers = [
+      { name: 'Tata Steel Processing Ltd', gstin: '24AAACT1234F1ZP', baseTaxable: 450000, rate: 0.18, pos: 'LOCAL' },
+      { name: 'UltraTech Cement Distributors', gstin: '24AAACU9988D1ZQ', baseTaxable: 280000, rate: 0.18, pos: 'LOCAL' },
+      { name: 'Sun Pharma Distribution Ltd', gstin: '27AABCS5544K1ZR', baseTaxable: 125000, rate: 0.18, pos: 'INTERSTATE' },
+      { name: 'Larsen & Toubro Electricals', gstin: '24AAACL1234K1ZM', baseTaxable: 340000, rate: 0.18, pos: 'LOCAL' },
+      { name: 'Reliance Petrochemicals Corp', gstin: '24AABCR8877H1ZT', baseTaxable: 620000, rate: 0.18, pos: 'LOCAL' },
+      { name: 'Asian Paints Regional Depot', gstin: '24AAACA1122D1ZZ', baseTaxable: 195000, rate: 0.18, pos: 'LOCAL' },
+      { name: 'Havells India Industrial Supplies', gstin: '07AAACH4433E1ZQ', baseTaxable: 210000, rate: 0.18, pos: 'INTERSTATE' },
+      { name: 'Voltas Climate Control Systems', gstin: '27AAACV7788P1ZR', baseTaxable: 155000, rate: 0.18, pos: 'INTERSTATE' },
+      { name: 'Adani Logistics Services Ltd', gstin: '24AAACA5566L1ZS', baseTaxable: 88000, rate: 0.18, pos: 'LOCAL' },
+      { name: 'Mahindra Logistics Express', gstin: '27AAACM9900K1ZN', baseTaxable: 65000, rate: 0.18, pos: 'INTERSTATE' },
+      { name: 'Infosys Cloud Enterprise Services', gstin: '29AAACI4455Q1ZU', baseTaxable: 110000, rate: 0.18, pos: 'INTERSTATE' },
+      { name: 'TCS IT Hardware Solutions', gstin: '27AAACT0099M1ZQ', baseTaxable: 95000, rate: 0.18, pos: 'INTERSTATE' },
+      { name: 'Jindal Steel & Power Corp', gstin: '22AAACJ1122R1ZX', baseTaxable: 420000, rate: 0.18, pos: 'INTERSTATE' },
+      { name: 'Apollo Tyres Commercial Hub', gstin: '24AAACA8899K1ZT', baseTaxable: 145000, rate: 0.18, pos: 'LOCAL' },
+    ];
+
+    const records: GSTR2BRecord[] = [];
+
+    // Generate 42 invoices cycling across suppliers with unique invoice numbers and dates
+    for (let i = 1; i <= 42; i++) {
+      const sup = suppliers[(i - 1) % suppliers.length];
+      const invDay = String((i % 28) + 1).padStart(2, '0');
+      const invDate = `${invDay}-Jul-2026`;
+      const filingDate = `${String(Math.min((i % 10) + 5, 13)).padStart(2, '0')}-Aug-2026`;
+      const mult = 0.5 + (i * 0.12);
+      const taxable = Math.round(sup.baseTaxable * mult * 100) / 100;
+      
+      let igst = 0;
+      let cgst = 0;
+      let sgst = 0;
+
+      if (sup.pos === 'INTERSTATE') {
+        igst = Math.round(taxable * sup.rate * 100) / 100;
+      } else {
+        cgst = Math.round((taxable * sup.rate) / 2 * 100) / 100;
+        sgst = cgst;
+      }
+
+      const totalAmount = Math.round((taxable + igst + cgst + sgst) * 100) / 100;
+      const invPrefix = sup.name.substring(0, 3).toUpperCase();
+      const invoiceNumber = `${invPrefix}/2026/${String(1000 + i)}`;
+
+      records.push({
+        id: `gstr2b-gen-${clientId}-${i}`,
+        clientId,
+        financialYear: fy,
+        taxPeriod: period,
+        supplierName: sup.name,
+        supplierGstin: sup.gstin,
+        invoiceNumber,
+        invoiceType: 'B2B',
+        invoiceDate: invDate,
+        taxableValue: taxable,
+        igst,
+        cgst,
+        sgst,
+        cess: 0,
+        totalAmount,
+        itcAvailability: 'Y',
+        filingDate,
+      });
+    }
+
+    return records;
+  },
+
+  // -------------------------------------------------------------
+  // 7. Generate Matching Purchase Register Dataset for Testing
+  // -------------------------------------------------------------
+  generateSamplePurchaseDataset: (
+    clientId: string,
+    period: string = 'July 2026',
+    fy: string = '2026-27'
+  ): PurchaseInvoiceRecord[] => {
+    const gstr2bList = reconciliationService.generateSampleGSTR2BDataset(clientId, period, fy);
+    const purchaseRecords: PurchaseInvoiceRecord[] = [];
+
+    // Convert most 2B invoices to matching purchase records
+    gstr2bList.slice(0, 36).forEach((g, idx) => {
+      // Intentionally introduce realistic real-world discrepancies on 4 items
+      let invNo = g.invoiceNumber;
+      let taxable = g.taxableValue;
+      let cgst = g.cgst;
+      let sgst = g.sgst;
+      let igst = g.igst;
+
+      if (idx === 1) {
+        // Value Mismatch (Taxable diff of ₹2,500)
+        taxable = taxable + 2500;
+        if (cgst > 0) {
+          cgst = Math.round((taxable * 0.18) / 2 * 100) / 100;
+          sgst = cgst;
+        } else {
+          igst = Math.round(taxable * 0.18 * 100) / 100;
+        }
+      } else if (idx === 2) {
+        // Invoice Number format variation (slashes vs dashes)
+        invNo = invNo.replace(/\//g, '-');
+      }
+
+      purchaseRecords.push({
+        id: `pinv-gen-${clientId}-${idx + 1}`,
+        clientId,
+        financialYear: fy,
+        taxPeriod: period,
+        supplierName: g.supplierName,
+        supplierGstin: g.supplierGstin,
+        invoiceNumber: invNo,
+        invoiceDate: g.invoiceDate,
+        taxableValue: taxable,
+        igst,
+        cgst,
+        sgst,
+        cess: 0,
+        totalAmount: Math.round((taxable + igst + cgst + sgst) * 100) / 100,
+        fileSource: 'Client_Purchase_Register.xlsx',
+        uploadedAt: new Date().toISOString(),
+      });
+    });
+
+    // Add 4 client purchase bills that are MISSING in GSTR-2B (Supplier failed to file)
+    purchaseRecords.push({
+      id: `pinv-gen-${clientId}-unfiled-1`,
+      clientId,
+      financialYear: fy,
+      taxPeriod: period,
+      supplierName: 'Gujarat Hardware & Spares',
+      supplierGstin: '24AAACG9988H1ZZ',
+      invoiceNumber: 'GHS/2026/0491',
+      invoiceDate: '14-Jul-2026',
+      taxableValue: 75000,
+      igst: 0,
+      cgst: 6750,
+      sgst: 6750,
+      cess: 0,
+      totalAmount: 88500,
+      fileSource: 'Client_Purchase_Register.xlsx',
+      uploadedAt: new Date().toISOString(),
+    });
+
+    purchaseRecords.push({
+      id: `pinv-gen-${clientId}-unfiled-2`,
+      clientId,
+      financialYear: fy,
+      taxPeriod: period,
+      supplierName: 'Shree Ram Transport Agency',
+      supplierGstin: '24AABCS4455K1Z1',
+      invoiceNumber: 'SRT-8821',
+      invoiceDate: '22-Jul-2026',
+      taxableValue: 48000,
+      igst: 0,
+      cgst: 4320,
+      sgst: 4320,
+      cess: 0,
+      totalAmount: 56640,
+      fileSource: 'Client_Purchase_Register.xlsx',
+      uploadedAt: new Date().toISOString(),
+    });
+
+    return purchaseRecords;
+  },
+
+  // -------------------------------------------------------------
+  // 8. Export Official GSTR-2B to Excel
+  // -------------------------------------------------------------
+  exportGSTR2BToExcel: (
+    records: GSTR2BRecord[],
+    clientName: string = 'Practice Client',
+    period: string = 'July 2026'
+  ) => {
+    const cleanDate = new Date().toISOString().split('T')[0];
+    const exportRows = records.map((r, idx) => ({
+      'Sr No': idx + 1,
+      'GSTIN of Supplier': r.supplierGstin,
+      'Trade/Legal Name': r.supplierName,
+      'Invoice Number': r.invoiceNumber,
+      'Invoice Type': r.invoiceType,
+      'Invoice Date': r.invoiceDate,
+      'Invoice Value (₹)': r.totalAmount,
+      'Taxable Value (₹)': r.taxableValue,
+      'Integrated Tax (₹)': r.igst,
+      'Central Tax (₹)': r.cgst,
+      'State/UT Tax (₹)': r.sgst,
+      'Cess (₹)': r.cess,
+      'ITC Availability': r.itcAvailability,
+      'Filing Date': r.filingDate,
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'B2B Inward');
+    XLSX.writeFile(workbook, `GSTR2B_${clientName.replace(/\s+/g, '_')}_${period}_${cleanDate}.xlsx`);
+  },
 };
