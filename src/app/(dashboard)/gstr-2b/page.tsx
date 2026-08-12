@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useRef, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthContext';
 import {
   RefreshCw,
@@ -20,12 +20,16 @@ import {
   RotateCcw,
   UploadCloud,
   X,
+  FileText,
+  Check,
 } from 'lucide-react';
 import { INITIAL_GST_VAULTS } from '@/lib/db/mockDb';
-import { Client } from '@/types';
+import { Client, GSTR2BRecord } from '@/types';
 import { clientService } from '@/services/clientService';
+import { reconciliationService } from '@/services/reconciliationService';
 
 function GSTR2BContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { user, logAuditAction } = useAuth();
   const [clients, setClients] = useState<Client[]>(() => clientService.getClients());
@@ -51,7 +55,7 @@ function GSTR2BContent() {
     };
     window.addEventListener('taxnexus:clients-updated' as any, handleUpdate);
     return () => window.removeEventListener('taxnexus:clients-updated' as any, handleUpdate);
-  }, []);
+  }, [selectedClientId]);
 
   const [selectedPeriod, setSelectedPeriod] = useState('July 2026');
   const [selectedFY, setSelectedFY] = useState('2026-27');
@@ -61,18 +65,20 @@ function GSTR2BContent() {
 
   // GSTR-2B Excel Import State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [preview2BInvoices, setPreview2BInvoices] = useState<any[]>([]);
+  const [isParsing, setIsParsing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [previewRecords, setPreviewRecords] = useState<GSTR2BRecord[]>([]);
+  const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [parseSummary, setParseSummary] = useState<{ totalTaxable: number; totalTax: number; totalAmount: number } | null>(null);
+  const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const client = clients.find((c) => c.id === selectedClientId) || clients[0] || {
     id: 'client-default',
     legalName: 'Practice Client',
     gstin: '24AAAAA0000A1Z5',
-  };
-  const vault = INITIAL_GST_VAULTS.find((v) => v.clientId === client.id) || {
-    id: 'vault-default',
-    clientId: client.id,
-    integrationStatus: 'CONNECTED',
-    syncHistory: [],
   };
 
   const handleStartPipeline = () => {
@@ -91,55 +97,161 @@ function GSTR2BContent() {
     }, 600);
   };
 
-  const handleSimulate2BExcelParse = () => {
-    setPreview2BInvoices([
+  // Real File Upload Handler
+  const handleFileSelect = async (file: File) => {
+    if (!file) return;
+    setUploadedFile(file);
+    setIsParsing(true);
+    setParseErrors([]);
+    setImportSuccessMessage(null);
+
+    try {
+      const result = await reconciliationService.parseGSTR2BFile(
+        file,
+        selectedClientId || client.id,
+        selectedPeriod,
+        selectedFY
+      );
+
+      if (result.success && result.records.length > 0) {
+        setPreviewRecords(result.records);
+        setParseSummary(result.summary);
+      } else {
+        setPreviewRecords([]);
+        setParseErrors(result.errors.length > 0 ? result.errors : ['Could not extract valid invoices from file.']);
+      }
+    } catch (err: any) {
+      setParseErrors([`Failed to process file: ${err.message}`]);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileSelect(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleLoadDemoGSTR2B = () => {
+    const demoRecords: GSTR2BRecord[] = [
       {
-        gstin: '24AAACT1234F1ZP',
+        id: `gstr2b-demo-1`,
+        clientId: client.id,
+        financialYear: selectedFY,
+        taxPeriod: selectedPeriod,
         supplierName: 'Tata Steel Processing Ltd',
-        invNo: 'TSP/2026/0891',
-        invDate: '15-Jul-2026',
-        taxable: '₹4,50,000',
-        cgst: '₹40,500',
-        sgst: '₹40,500',
-        igst: '₹0',
-        itc: 'Y',
+        supplierGstin: '24AAACT1234F1ZP',
+        invoiceNumber: 'TSP/2026/0891',
+        invoiceType: 'B2B',
+        invoiceDate: '15-Jul-2026',
+        taxableValue: 450000,
+        igst: 0,
+        cgst: 40500,
+        sgst: 40500,
+        cess: 0,
+        totalAmount: 531000,
+        itcAvailability: 'Y',
+        filingDate: '10-Aug-2026',
       },
       {
-        gstin: '24AAACU9988D1ZQ',
+        id: `gstr2b-demo-2`,
+        clientId: client.id,
+        financialYear: selectedFY,
+        taxPeriod: selectedPeriod,
         supplierName: 'UltraTech Cement Distributors',
-        invNo: 'UTC-JUL-402',
-        invDate: '18-Jul-2026',
-        taxable: '₹2,80,000',
-        cgst: '₹25,200',
-        sgst: '₹25,200',
-        igst: '₹0',
-        itc: 'Y',
+        supplierGstin: '24AAACU9988D1ZQ',
+        invoiceNumber: 'UTC-JUL-402',
+        invoiceType: 'B2B',
+        invoiceDate: '18-Jul-2026',
+        taxableValue: 280000,
+        igst: 0,
+        cgst: 25200,
+        sgst: 25200,
+        cess: 0,
+        totalAmount: 330400,
+        itcAvailability: 'Y',
+        filingDate: '11-Aug-2026',
       },
       {
-        gstin: '24AABCS5544K1ZR',
+        id: `gstr2b-demo-3`,
+        clientId: client.id,
+        financialYear: selectedFY,
+        taxPeriod: selectedPeriod,
         supplierName: 'Sun Pharma Distribution Ltd',
-        invNo: 'SUN/2026/774',
-        invDate: '21-Jul-2026',
-        taxable: '₹1,25,000',
-        cgst: '₹0',
-        sgst: '₹0',
-        igst: '₹22,500',
-        itc: 'Y',
+        supplierGstin: '27AABCS5544K1ZR',
+        invoiceNumber: 'SUN/2026/774',
+        invoiceType: 'B2B',
+        invoiceDate: '21-Jul-2026',
+        taxableValue: 125000,
+        igst: 22500,
+        cgst: 0,
+        sgst: 0,
+        cess: 0,
+        totalAmount: 147500,
+        itcAvailability: 'Y',
+        filingDate: '09-Aug-2026',
       },
-    ]);
+    ];
+
+    setPreviewRecords(demoRecords);
+    setParseSummary({
+      totalTaxable: 855000,
+      totalTax: 153900,
+      totalAmount: 1008900,
+    });
+    setParseErrors([]);
   };
 
   const handleConfirm2BImport = () => {
-    setDownloadedCount((prev) => prev + preview2BInvoices.length);
+    if (previewRecords.length === 0) return;
+
+    // Save to persistent GSTR-2B store
+    reconciliationService.saveGSTR2BRecords(previewRecords);
+
+    // Auto trigger reconciliation matching with existing purchase records
+    const purchaseRecords = reconciliationService.getPurchaseRecords(client.id, selectedPeriod);
+    if (purchaseRecords.length > 0) {
+      const reconItems = reconciliationService.matchInvoices(
+        previewRecords,
+        purchaseRecords,
+        client.id,
+        selectedPeriod,
+        selectedFY
+      );
+      reconciliationService.saveReconciliationData(reconItems);
+    }
+
+    setDownloadedCount((prev) => prev + previewRecords.length);
     logAuditAction(
       'GSTR-2B Excel File Imported',
       'GST_PIPELINE',
       client.legalName,
-      `Imported ${preview2BInvoices.length} inward B2B invoices from official GSTR-2B Excel.`
+      `Imported ${previewRecords.length} inward B2B invoices from ${uploadedFile?.name || 'GSTR-2B Spreadsheet'}.`
     );
-    setPreview2BInvoices([]);
+
+    setImportSuccessMessage(`Successfully imported ${previewRecords.length} invoices for ${client.legalName}!`);
+  };
+
+  const handleCloseModal = () => {
     setIsImportModalOpen(false);
-    alert(`Successfully imported ${preview2BInvoices.length} GSTR-2B invoices for ${client.legalName}!`);
+    setPreviewRecords([]);
+    setUploadedFile(null);
+    setParseErrors([]);
+    setParseSummary(null);
+    setImportSuccessMessage(null);
   };
 
   const automationLogs = [
@@ -190,10 +302,10 @@ function GSTR2BContent() {
           {/* Import GSTR-2B Excel Button */}
           <button
             onClick={() => setIsImportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-xs font-bold hover:bg-purple-100 transition-all"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-xs font-bold hover:bg-purple-100 transition-all shadow-sm"
           >
             <UploadCloud className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-            <span>Import GSTR-2B Excel</span>
+            <span>Upload GSTR-2B Excel</span>
           </button>
 
           <Link
@@ -392,7 +504,7 @@ function GSTR2BContent() {
       {isImportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div
-            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 shadow-modal space-y-4"
+            className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 shadow-modal space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -406,68 +518,174 @@ function GSTR2BContent() {
                 </p>
               </div>
               <button
-                onClick={() => {
-                  setIsImportModalOpen(false);
-                  setPreview2BInvoices([]);
-                }}
-                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
+                onClick={handleCloseModal}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Drag & Drop Upload Box */}
-            <div className="border-2 border-dashed border-purple-300 dark:border-purple-800 rounded-2xl p-6 text-center space-y-3 bg-purple-50/20 dark:bg-purple-950/20">
-              <UploadCloud className="h-10 w-10 text-purple-600 mx-auto" />
+            {/* Drag & Drop Real Upload Box */}
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center space-y-3 transition-colors cursor-pointer ${
+                isDragging
+                  ? 'border-purple-500 bg-purple-100/50 dark:bg-purple-900/30'
+                  : 'border-purple-300 dark:border-purple-800 bg-purple-50/20 dark:bg-purple-950/20 hover:border-purple-400'
+              }`}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv,.json"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleFileSelect(e.target.files[0]);
+                  }
+                }}
+              />
+
+              <UploadCloud className="h-10 w-10 text-purple-600 mx-auto animate-bounce" />
               <div>
-                <h4 className="text-xs font-bold text-slate-900 dark:text-white">Upload GSTR-2B Spreadsheet</h4>
-                <p className="text-[11px] text-slate-500">Supports .xlsx, .csv, and official GST portal .json files (up to 50MB)</p>
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                  {uploadedFile ? uploadedFile.name : 'Click to Upload or Drag & Drop GSTR-2B Spreadsheet'}
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Supports Official GST Portal .xlsx, .csv, and .json files (up to 50MB)
+                </p>
+                {uploadedFile && (
+                  <p className="text-[10px] text-purple-600 font-bold mt-1">
+                    File Size: {(uploadedFile.size / 1024).toFixed(1)} KB
+                  </p>
+                )}
               </div>
 
-              <div className="flex justify-center gap-3">
+              <div className="flex flex-wrap justify-center gap-3 pt-2" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
-                  onClick={handleSimulate2BExcelParse}
-                  className="px-4 py-2 rounded-xl bg-purple-600 text-white font-bold text-xs hover:bg-purple-700 shadow-sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 rounded-xl bg-purple-600 text-white font-bold text-xs hover:bg-purple-700 shadow-sm flex items-center gap-1.5"
                 >
-                  Parse Sample GSTR-2B Excel File
+                  <UploadCloud className="h-3.5 w-3.5" />
+                  <span>Browse Excel / JSON File</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLoadDemoGSTR2B}
+                  className="px-3 py-2 rounded-xl border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 font-bold text-xs hover:bg-purple-50 dark:hover:bg-purple-900/30"
+                >
+                  Load Sample GSTR-2B Demo
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => reconciliationService.downloadSampleGSTR2BTemplate()}
+                  className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Download Template (.xlsx)</span>
                 </button>
               </div>
             </div>
 
+            {/* Parsing State */}
+            {isParsing && (
+              <div className="p-4 rounded-xl bg-purple-50 dark:bg-purple-950 text-purple-800 dark:text-purple-200 text-xs flex items-center justify-center gap-2 border border-purple-200">
+                <RefreshCw className="h-4 w-4 animate-spin text-purple-600" />
+                <span>Parsing official GSTR-2B worksheets and verifying invoice tax breakdown...</span>
+              </div>
+            )}
+
+            {/* Parse Errors */}
+            {parseErrors.length > 0 && (
+              <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 text-xs space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                  <span>File Parsing Errors:</span>
+                </div>
+                {parseErrors.map((err, i) => (
+                  <p key={i} className="text-[11px] pl-5">• {err}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Success message */}
+            {importSuccessMessage && (
+              <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  <span className="font-bold">{importSuccessMessage}</span>
+                </div>
+                <Link
+                  href={`/reconciliation?clientId=${client.id}`}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 shrink-0"
+                >
+                  <span>Go to Reconciliation</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            )}
+
+            {/* Summary Metrics */}
+            {parseSummary && previewRecords.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Invoices Found</span>
+                  <p className="font-bold text-slate-900 dark:text-white text-sm">{previewRecords.length} B2B Records</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Total Taxable</span>
+                  <p className="font-mono font-bold text-slate-900 dark:text-white text-sm">₹{parseSummary.totalTaxable.toLocaleString('en-IN')}</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Total Eligible ITC</span>
+                  <p className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">₹{parseSummary.totalTax.toLocaleString('en-IN')}</p>
+                </div>
+              </div>
+            )}
+
             {/* Parsed Preview Table */}
-            {preview2BInvoices.length > 0 && (
+            {previewRecords.length > 0 && (
               <div className="space-y-2 pt-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-slate-900 dark:text-white">
-                    Parsed GSTR-2B Invoices ({preview2BInvoices.length} Inward Records)
+                    Parsed GSTR-2B Invoices ({previewRecords.length} Inward Records)
                   </span>
-                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-100 px-2 py-0.5 rounded">
+                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 rounded">
                     ✓ Ready for Reconciliation
                   </span>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-h-56">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold uppercase text-[10px]">
+                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold uppercase text-[10px] sticky top-0">
                       <tr>
                         <th className="p-2.5">Supplier Name</th>
                         <th className="p-2.5">Supplier GSTIN</th>
                         <th className="p-2.5">Inv No</th>
-                        <th className="p-2.5">Taxable</th>
+                        <th className="p-2.5">Date</th>
+                        <th className="p-2.5 text-right">Taxable (₹)</th>
+                        <th className="p-2.5 text-right">Tax (₹)</th>
                         <th className="p-2.5">ITC Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {preview2BInvoices.map((inv, idx) => (
-                        <tr key={idx}>
-                          <td className="p-2.5 font-bold text-slate-900 dark:text-white">{inv.supplierName}</td>
-                          <td className="p-2.5 font-mono text-[11px]">{inv.gstin}</td>
-                          <td className="p-2.5">{inv.invNo}</td>
-                          <td className="p-2.5 font-mono">{inv.taxable}</td>
+                      {previewRecords.map((inv, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="p-2.5 font-bold text-slate-900 dark:text-white max-w-[150px] truncate">{inv.supplierName}</td>
+                          <td className="p-2.5 font-mono text-[11px]">{inv.supplierGstin}</td>
+                          <td className="p-2.5 font-mono">{inv.invoiceNumber}</td>
+                          <td className="p-2.5 text-slate-500">{inv.invoiceDate}</td>
+                          <td className="p-2.5 font-mono font-semibold text-right">₹{inv.taxableValue.toLocaleString('en-IN')}</td>
+                          <td className="p-2.5 font-mono text-emerald-600 dark:text-emerald-400 text-right">₹{(inv.igst + inv.cgst + inv.sgst).toLocaleString('en-IN')}</td>
                           <td className="p-2.5">
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                              ITC: {inv.itc}
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                              ITC: {inv.itcAvailability}
                             </span>
                           </td>
                         </tr>
@@ -482,22 +700,20 @@ function GSTR2BContent() {
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => {
-                  setIsImportModalOpen(false);
-                  setPreview2BInvoices([]);
-                }}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600"
+                onClick={handleCloseModal}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
               >
                 Cancel
               </button>
 
               <button
                 type="button"
-                disabled={preview2BInvoices.length === 0}
+                disabled={previewRecords.length === 0 || !!importSuccessMessage}
                 onClick={handleConfirm2BImport}
-                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-sm disabled:opacity-50"
+                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-sm disabled:opacity-50 flex items-center gap-1.5"
               >
-                Import {preview2BInvoices.length} Invoices to GSTR-2B
+                <Check className="h-4 w-4" />
+                <span>Import {previewRecords.length} Invoices to GSTR-2B</span>
               </button>
             </div>
           </div>
