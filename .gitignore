@@ -25,6 +25,11 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+.env.production
+
+# sqlite database files
+prisma/*.db
+prisma/*.db-journal
 
 # typescript
 *.tsbuildinfo

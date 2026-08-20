@@ -62,7 +62,7 @@ export const clientService = {
     return INITIAL_CLIENTS;
   },
 
-  // Save clients to localStorage & notify other components
+  // Save clients to localStorage & notify other components & sync to SQLite database
   saveClients: (clients: Client[]): void => {
     if (typeof window !== 'undefined') {
       try {
@@ -74,42 +74,96 @@ export const clientService = {
     }
   },
 
-  // Add single client and persist
+  // Add single client and persist to SQLite DB & localStorage
   addClient: (client: Client): Client[] => {
     const current = clientService.getClients();
     const updated = [client, ...current.filter((c) => c.id !== client.id && c.gstin !== client.gstin)];
     clientService.saveClients(updated);
+
+    // Async sync to SQLite database
+    if (typeof window !== 'undefined') {
+      fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(client),
+      }).catch((err) => console.warn('SQLite DB sync error (POST /api/clients):', err));
+    }
+
     return updated;
   },
 
-  // Add multiple clients (e.g. from Excel/CSV bulk import) and persist
+  // Add multiple clients (e.g. from Excel/CSV bulk import) and persist to SQLite DB & localStorage
   addClients: (newClients: Client[]): Client[] => {
     const current = clientService.getClients();
     const existingGstinSet = new Set(current.map((c) => (c.gstin || '').toUpperCase()));
     const filteredNew = newClients.filter((c) => !existingGstinSet.has((c.gstin || '').toUpperCase()));
     const updated = [...filteredNew, ...current];
     clientService.saveClients(updated);
+
+    // Async sync to SQLite database
+    if (typeof window !== 'undefined' && filteredNew.length > 0) {
+      fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(filteredNew),
+      }).catch((err) => console.warn('SQLite DB bulk sync error:', err));
+    }
+
     return updated;
   },
 
-  // Update existing client
+  // Update existing client in SQLite DB & localStorage
   updateClient: (updatedClient: Client): Client[] => {
     const current = clientService.getClients();
     const updated = current.map((c) => (c.id === updatedClient.id ? updatedClient : c));
     clientService.saveClients(updated);
+
+    // Async sync to SQLite database
+    if (typeof window !== 'undefined') {
+      fetch(`/api/clients/${updatedClient.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedClient),
+      }).catch((err) => console.warn(`SQLite DB sync error (PUT /api/clients/${updatedClient.id}):`, err));
+    }
+
     return updated;
   },
 
-  // Delete client
+  // Delete client in SQLite DB & localStorage
   deleteClient: (clientId: string): Client[] => {
     const current = clientService.getClients();
     const updated = current.filter((c) => c.id !== clientId);
     clientService.saveClients(updated);
+
+    // Async sync to SQLite database
+    if (typeof window !== 'undefined') {
+      fetch(`/api/clients/${clientId}`, {
+        method: 'DELETE',
+      }).catch((err) => console.warn(`SQLite DB sync error (DELETE /api/clients/${clientId}):`, err));
+    }
+
     return updated;
   },
 
-  // Fetch all clients
+  // Fetch all clients from SQLite DB backend with localStorage fallback
   getAllClients: async (): Promise<Client[]> => {
+    if (typeof window !== 'undefined') {
+      try {
+        const res = await fetch('/api/clients');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data)) {
+            if (json.data.length > 0) {
+              clientService.saveClients(json.data);
+              return json.data;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Unable to fetch clients from SQLite API, using local state:', e);
+      }
+    }
     return clientService.getClients();
   },
 

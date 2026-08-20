@@ -1,0 +1,272 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                   String   @id @default(uuid())
+  name                 String
+  email                String   @unique
+  phone                String
+  role                 String   // SUPER_ADMIN, ADMIN, CA_SENIOR, MANAGER, STAFF, ACCOUNTANT, DATA_ENTRY, VIEWER, CUSTOM
+  roleTitle            String
+  department           String?
+  designation          String?
+  status               String   @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  mfaEnabled           Boolean  @default(false)
+  avatarUrl            String?
+  assignedClientsCount Int      @default(0)
+  permissions          String   // JSON string of PermissionSet
+  lastLogin            String?
+  loginHistory         String?  // JSON array of login logs
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Client {
+  id                    String   @id @default(uuid())
+  clientId              String   @unique // e.g. TN-2026-001
+  legalName             String
+  tradeName             String
+  businessName          String
+  entityType            String
+  pan                   String
+  gstin                 String   @unique
+  cin                   String?
+  tan                   String?
+  udyamNumber           String?
+  phone                 String
+  altPhone              String?
+  email                 String
+  website               String?
+  businessAddress       String
+  registeredAddress     String
+  billingAddress        String
+  authorizedPerson      String   // JSON object
+  category              String   // Enterprise (Category A), Standard (Category B), Startup / SME (Category C)
+  industry              String
+  gstRegType            String   // Regular, Composition, SEZ Unit, etc.
+  filingFrequency       String   // Monthly, Quarterly (QRMP)
+  returnType            String   @default("GSTR-1 & GSTR-3B")
+  dueDates              String   // JSON object: { gstr1, gstr3b, reconciliation }
+  assignedStaff         String   // JSON array of ClientStaffAssignment
+  assignedManagerId     String?
+  assignedManagerName   String?
+  notes                 String?
+  importantInstructions String?
+  status                String   @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  createdAt             String
+  updatedAt             String
+
+  purchaseInvoices      PurchaseInvoiceRecord[]
+  gstr2bRecords         GSTR2BRecord[]
+  reconciliationItems   ReconciliationItem[]
+  tasks                 Task[]
+  documents             DocumentItem[]
+  communicationLogs     CommunicationLog[]
+}
+
+model GSTCredentialVault {
+  id                   String   @id @default(uuid())
+  clientId             String   @unique
+  clientName           String
+  gstin                String
+  gstUsername          String
+  isPasswordSaved      Boolean  @default(true)
+  integrationStatus    String   @default("CONNECTED") // CONNECTED, DISCONNECTED, AUTH_REQUIRED, SYNC_IN_PROGRESS
+  connectionMode       String   @default("OFFICIAL_GSP_API") // OFFICIAL_GSP_API, ASSISTED_PORTAL_SESSION
+  lastSuccessfulLogin  String?
+  lastSync             String?
+  tokenExpiresAt       String?
+  syncHistory          String   @default("[]") // JSON array of sync items
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model PurchaseInvoiceRecord {
+  id             String   @id @default(uuid())
+  clientId       String
+  financialYear  String
+  taxPeriod      String
+  supplierName   String
+  supplierGstin  String
+  invoiceNumber  String
+  invoiceDate    String
+  taxableValue   Float
+  igst           Float
+  cgst           Float
+  sgst           Float
+  cess           Float    @default(0.0)
+  totalAmount    Float
+  fileSource     String?
+  ocrConfidence  Float?
+  uploadedAt     String
+
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model GSTR2BRecord {
+  id              String   @id @default(uuid())
+  clientId        String
+  financialYear   String
+  taxPeriod       String
+  supplierName    String
+  supplierGstin   String
+  invoiceNumber   String
+  invoiceType     String   // R, CR, DR, B2B
+  invoiceDate     String
+  taxableValue    Float
+  igst            Float
+  cgst            Float
+  sgst            Float
+  cess            Float    @default(0.0)
+  totalAmount     Float
+  itcAvailability String   // Y, N, T, INELIGIBLE
+  filingDate      String
+
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model ReconciliationItem {
+  id                 String   @id @default(uuid())
+  clientId           String
+  financialYear      String
+  taxPeriod          String
+  matchCategory      String   // MATCHED, PARTIALLY_MATCHED, MISSING_IN_GSTR2B, etc.
+  categoryLabel      String
+  purchaseInvoice    String?  // JSON string
+  gstr2bRecord       String?  // JSON string
+  discrepancyDiff    String?  // JSON string
+  aiExplanation      String
+  suggestedAction    String
+  resolutionStatus   String   @default("PENDING") // PENDING, ACCEPTED, REJECTED, ADJUSTED
+  userNotes          String?
+  reviewedBy         String?
+  reviewedAt         String?
+  createdAt          DateTime @default(now())
+
+  client             Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id                String   @id @default(uuid())
+  clientId          String
+  clientName        String
+  title             String
+  description       String
+  assignedStaffId   String
+  assignedStaffName String
+  priority          String   // LOW, MEDIUM, HIGH, URGENT
+  dueDate           String
+  status            String   // PENDING, IN_PROGRESS, WAITING_FOR_CLIENT, COMPLETED, OVERDUE
+  category          String   // GST_FILING, RECONCILIATION, DOCUMENT_COLLECTION, NOTICE_REPLY, AUDIT_REVIEW
+  createdAt         String
+  commentsCount     Int      @default(0)
+
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model CommunicationTemplate {
+  id        String   @id @default(uuid())
+  name      String
+  channel   String   // WHATSAPP, EMAIL
+  subject   String?
+  body      String
+  variables String   // JSON array of strings
+  category  String   // GST_REMINDER, PURCHASE_BILL_REQUEST, RECONCILIATION_REPORT, TAX_PAYMENT_ALERT, CUSTOM
+  updatedAt String
+}
+
+model ScheduledMessage {
+  id             String   @id @default(uuid())
+  channel        String   // WHATSAPP, EMAIL
+  templateId     String
+  templateName   String
+  recipientCount Int
+  scheduledTime  String
+  recurrence     String   // ONE_TIME, MONTHLY_5TH, MONTHLY_10TH, MONTHLY_15TH, MONTHLY_18TH
+  status         String   // DRAFT, SCHEDULED, QUEUED, SENT, DELIVERED, FAILED
+  targetClients  String   // JSON array of client IDs
+  createdAt      String
+}
+
+model CommunicationLog {
+  id             String   @id @default(uuid())
+  clientId       String
+  clientName     String
+  channel        String   // WHATSAPP, EMAIL
+  recipient      String
+  subject        String?
+  messageContent String
+  status         String   // SENT, DELIVERED, FAILED, QUEUED
+  sentAt         String
+  sentBy         String
+  errorReason    String?
+
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model DocumentItem {
+  id          String   @id @default(uuid())
+  clientId    String
+  clientName  String
+  category    String   // Client Documents, GST Documents, Purchase Invoices, etc.
+  fileName    String
+  fileSize    String
+  fileType    String   // PDF, EXCEL, CSV, IMAGE, ZIP
+  version     String   @default("v1.0")
+  uploadedBy  String
+  uploadedAt  String
+  downloadUrl String
+
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model AuditLogItem {
+  id           String   @id @default(uuid())
+  userId       String
+  userName     String
+  userRole     String
+  action       String
+  resourceType String
+  clientName   String?
+  ipAddress    String
+  userAgent    String
+  timestamp    String
+  details      String
+}
+
+model DeveloperRelease {
+  id           String   @id @default(uuid())
+  version      String
+  releaseDate  String
+  status       String   // STABLE, BETA, DEPLOYED
+  features     String   // JSON string array
+  improvements String   // JSON string array
+  bugFixes     String   // JSON string array
+}
+
+model SystemHealthMetric {
+  id          String   @id @default(uuid())
+  service     String   @unique
+  status      String   // OPERATIONAL, DEGRADED, MAINTENANCE
+  latencyMs   Int
+  uptime      String
+  lastChecked String
+}
+
+model SystemNotification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  type      String   // INFO, SUCCESS, WARNING, ERROR
+  category  String   // CLIENT, GST, RECON, TASK, COMMUNICATION, SYSTEM
+  timestamp String
+  read      Boolean  @default(false)
+  link      String?
+}
